@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
-import { ChevronDown } from 'lucide-react'
-import type { Agent } from '../types'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { ChevronDown, RefreshCw } from 'lucide-react'
+import { providerApi } from '../api/client'
+import type { Agent, Provider } from '../types'
 
 interface Props {
   agent?: Agent | null
@@ -8,31 +10,38 @@ interface Props {
   onSave: (data: { name: string; description: string; config: Record<string, unknown>; system_prompt: string; model: string; api_url: string; api_key: string; provider: string }) => void
 }
 
-const PROVIDER_DEFAULTS: Record<string, { api_url: string; model: string }> = {
-  kimi: { api_url: 'https://api.kimi.com/coding/', model: 'kimi-latest' },
-  ollama: { api_url: 'http://localhost:11434/v1/', model: 'llama3' },
-  openai: { api_url: 'https://api.openai.com/v1/', model: 'gpt-4o' },
-}
-
-const PROVIDER_OPTIONS = [
-  { value: 'kimi', label: 'kimi' },
-  { value: 'ollama', label: 'ollama' },
-  { value: 'openai', label: 'openai' },
-  { value: 'custom', label: 'custom' },
-]
-
 export default function AgentModal({ agent, onClose, onSave }: Props) {
+  const queryClient = useQueryClient()
+
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [config, setConfig] = useState('{}')
   const [systemPrompt, setSystemPrompt] = useState('')
-  const [model, setModel] = useState('kimi-latest')
-  const [apiUrl, setApiUrl] = useState('https://api.kimi.com/coding/')
+  const [model, setModel] = useState('')
+  const [apiUrl, setApiUrl] = useState('')
   const [apiKey, setApiKey] = useState('')
-  const [provider, setProvider] = useState('kimi')
+  const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null)
 
   const modelModified = useRef(false)
   const apiUrlModified = useRef(false)
+
+  const { data: providers } = useQuery({
+    queryKey: ['providers'],
+    queryFn: () => providerApi.list(),
+  })
+
+  const { data: models } = useQuery({
+    queryKey: ['providerModels', selectedProvider?.id],
+    queryFn: () => providerApi.getModels(selectedProvider!.id),
+    enabled: !!selectedProvider,
+  })
+
+  const discoverMutation = useMutation({
+    mutationFn: ({ id, apiKey }: { id: number; apiKey: string }) => providerApi.discover(id, apiKey),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['providerModels', selectedProvider?.id] })
+    },
+  })
 
   useEffect(() => {
     if (agent) {
@@ -40,34 +49,39 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
       setDescription(agent.description)
       setConfig(JSON.stringify(agent.config, null, 2))
       setSystemPrompt(agent.system_prompt || '')
-      setModel(agent.model || 'kimi-latest')
-      setApiUrl(agent.api_url || 'https://api.kimi.com/coding/')
+      setModel(agent.model || '')
+      setApiUrl(agent.api_url || '')
       setApiKey(agent.api_key || '')
-      setProvider(agent.provider || 'kimi')
       modelModified.current = true
       apiUrlModified.current = true
+
+      if (providers) {
+        const matched = providers.find(p => p.key === agent.provider) || null
+        setSelectedProvider(matched)
+      }
     } else {
       setName('')
       setDescription('')
       setConfig('{}')
       setSystemPrompt('')
-      setModel('kimi-latest')
-      setApiUrl('https://api.kimi.com/coding/')
+      setModel('')
+      setApiUrl('')
       setApiKey('')
-      setProvider('kimi')
+      setSelectedProvider(null)
       modelModified.current = false
       apiUrlModified.current = false
     }
-  }, [agent])
+  }, [agent, providers])
 
-  const handleProviderChange = (value: string) => {
-    setProvider(value)
-    if (value !== 'custom' && PROVIDER_DEFAULTS[value]) {
+  const handleProviderChange = (providerId: number) => {
+    const provider = providers?.find(p => p.id === providerId) || null
+    setSelectedProvider(provider)
+    if (provider) {
       if (!modelModified.current) {
-        setModel(PROVIDER_DEFAULTS[value].model)
+        setModel('')
       }
       if (!apiUrlModified.current) {
-        setApiUrl(PROVIDER_DEFAULTS[value].api_url)
+        setApiUrl(provider.base_url || '')
       }
     }
   }
@@ -82,13 +96,30 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
     apiUrlModified.current = true
   }
 
+  const handleDiscover = () => {
+    if (selectedProvider) {
+      discoverMutation.mutate({ id: selectedProvider.id, apiKey })
+    }
+  }
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     let parsed: Record<string, unknown> = {}
     try { parsed = JSON.parse(config) } catch { /* ignore */ }
-    onSave({ name, description, config: parsed, system_prompt: systemPrompt, model, api_url: apiUrl, api_key: apiKey, provider })
+    onSave({
+      name,
+      description,
+      config: parsed,
+      system_prompt: systemPrompt,
+      model,
+      api_url: apiUrl,
+      api_key: apiKey,
+      provider: selectedProvider?.key || '',
+    })
     onClose()
   }
+
+  const hasModels = models && models.length > 0
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={onClose}>
@@ -108,11 +139,12 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
             <div className="relative mt-1">
               <select
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm appearance-none bg-white pr-8"
-                value={provider}
-                onChange={e => handleProviderChange(e.target.value)}
+                value={selectedProvider?.id ?? ''}
+                onChange={e => handleProviderChange(Number(e.target.value))}
               >
-                {PROVIDER_OPTIONS.map(opt => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                <option value="">Select a provider</option>
+                {providers?.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>
               <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
@@ -123,8 +155,37 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
             <textarea className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" rows={3} value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700">Model</label>
-            <input className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" value={model} onChange={e => handleModelChange(e.target.value)} />
+            <div className="flex items-center justify-between">
+              <label className="block text-sm font-medium text-gray-700">Model</label>
+              {selectedProvider && (
+                <button
+                  type="button"
+                  onClick={handleDiscover}
+                  disabled={discoverMutation.isPending}
+                  className="flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900 disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3 h-3 ${discoverMutation.isPending ? 'animate-spin' : ''}`} />
+                  Refresh Models
+                </button>
+              )}
+            </div>
+            {hasModels ? (
+              <div className="relative mt-1">
+                <select
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm appearance-none bg-white pr-8"
+                  value={model}
+                  onChange={e => handleModelChange(e.target.value)}
+                >
+                  <option value="">Select a model</option>
+                  {models.map(m => (
+                    <option key={m.id} value={m.model_id}>{m.name || m.model_id}</option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
+              </div>
+            ) : (
+              <input className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" value={model} onChange={e => handleModelChange(e.target.value)} />
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">API URL</label>
@@ -137,8 +198,11 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
               className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
               value={apiKey}
               onChange={e => setApiKey(e.target.value)}
-              placeholder={provider === 'ollama' ? 'optional for ollama' : undefined}
+              placeholder={selectedProvider?.key === 'ollama' ? 'optional for ollama' : undefined}
             />
+            {selectedProvider?.api_key_env && (
+              <p className="mt-1 text-xs text-gray-500">也可通过环境变量 {selectedProvider.api_key_env} 设置</p>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">Config (JSON)</label>

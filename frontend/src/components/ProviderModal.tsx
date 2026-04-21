@@ -54,7 +54,7 @@ export default function ProviderModal({ provider, onClose, onSave }: Props) {
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={onClose}>
       <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <h2 className="text-lg font-bold mb-4">
-          {provider ? (isBuiltin ? 'View Provider' : 'Edit Provider') : 'New Provider'}
+          {provider ? 'Edit Provider' : 'New Provider'}
         </h2>
         {isBuiltin && (
           <div className="mb-4 flex items-start gap-2 text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm">
@@ -73,19 +73,19 @@ export default function ProviderModal({ provider, onClose, onSave }: Props) {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">Base URL</label>
-            <input className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} required disabled={isBuiltin} />
+            <input className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} required />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">API Key Env Variable</label>
-            <input className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" value={apiKeyEnv} onChange={e => setApiKeyEnv(e.target.value)} disabled={isBuiltin} />
+            <input className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" value={apiKeyEnv} onChange={e => setApiKeyEnv(e.target.value)} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">Description</label>
-            <textarea className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" rows={2} value={description} onChange={e => setDescription(e.target.value)} disabled={isBuiltin} />
+            <textarea className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" rows={2} value={description} onChange={e => setDescription(e.target.value)} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">Documentation URL</label>
-            <input className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" value={docUrl} onChange={e => setDocUrl(e.target.value)} disabled={isBuiltin} />
+            <input className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" value={docUrl} onChange={e => setDocUrl(e.target.value)} />
           </div>
           <div className="flex items-center gap-2">
             <input
@@ -93,20 +93,18 @@ export default function ProviderModal({ provider, onClose, onSave }: Props) {
               id="is_enabled"
               checked={isEnabled}
               onChange={e => setIsEnabled(e.target.checked)}
-              disabled={isBuiltin}
+            
               className="rounded border-gray-300"
             />
             <label htmlFor="is_enabled" className="text-sm font-medium text-gray-700">Enabled</label>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">Config (JSON)</label>
-            <textarea className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono" rows={4} value={config} onChange={e => setConfig(e.target.value)} disabled={isBuiltin} />
+            <textarea className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono" rows={4} value={config} onChange={e => setConfig(e.target.value)} />
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-50">Cancel</button>
-            {!isBuiltin && (
-              <button type="submit" className="px-4 py-2 text-sm rounded-lg bg-gray-900 text-white hover:bg-gray-800">Save</button>
-            )}
+            <button type="submit" className="px-4 py-2 text-sm rounded-lg bg-gray-900 text-white hover:bg-gray-800">Save</button>
           </div>
         </form>
       </div>

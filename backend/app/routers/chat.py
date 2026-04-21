@@ -9,21 +9,6 @@ import json
 
 router = APIRouter()
 
-PROVIDER_CONFIG = {
-    "kimi": {
-        "base_url": "https://api.kimi.com/coding/",
-        "default_model": "kimi-latest",
-    },
-    "ollama": {
-        "base_url": "http://localhost:11434/v1/",
-        "default_model": "llama3",
-    },
-    "openai": {
-        "base_url": "https://api.openai.com/v1/",
-        "default_model": "gpt-4o",
-    },
-}
-
 
 @router.post("/{agent_id}/chat")
 def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(get_db)):
@@ -35,27 +20,34 @@ def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(get_db))
     if not user_message:
         raise HTTPException(status_code=400, detail="message is required")
 
-    provider = (agent.provider or "kimi").lower()
     system_prompt = agent.system_prompt or "You are a helpful assistant."
 
-    if provider == "custom":
-        base_url = agent.api_url
+    provider = db.query(models.Provider).filter(
+        models.Provider.key == (agent.provider or "kimi").lower()
+    ).first()
+    if not provider:
+        raise HTTPException(status_code=400, detail=f"Unknown provider: {agent.provider}")
+    if not provider.is_enabled:
+        raise HTTPException(status_code=400, detail=f"Provider {provider.name} is disabled")
+
+    base_url = provider.base_url
+    model = agent.model or ""
+    api_key = agent.api_key or ""
+
+    if provider.key == "custom":
+        base_url = agent.api_url or base_url
         model = agent.model
-        api_key = agent.api_key or ""
-        if not api_key:
-            raise HTTPException(status_code=400, detail="Agent api_key not configured")
-    elif provider == "ollama":
-        base_url = PROVIDER_CONFIG["ollama"]["base_url"]
-        model = agent.model or PROVIDER_CONFIG["ollama"]["default_model"]
-        api_key = agent.api_key or "ollama"
-    elif provider in PROVIDER_CONFIG:
-        base_url = PROVIDER_CONFIG[provider]["base_url"]
-        model = agent.model or PROVIDER_CONFIG[provider]["default_model"]
-        api_key = agent.api_key or ""
         if not api_key:
             raise HTTPException(status_code=400, detail="Agent api_key not configured")
     else:
-        raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
+        if not base_url:
+            raise HTTPException(status_code=400, detail="Provider base_url not configured")
+        if not model:
+            raise HTTPException(status_code=400, detail="Agent model not configured")
+        if provider.key == "ollama":
+            api_key = api_key or "ollama"
+        elif not api_key:
+            raise HTTPException(status_code=400, detail="Agent api_key not configured")
 
     llm = ChatOpenAI(
         model=model,

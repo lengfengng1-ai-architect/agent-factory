@@ -117,9 +117,16 @@ def update_provider(
     )
     if not db_provider:
         raise HTTPException(status_code=404, detail="Provider not found")
+
+    data = provider.model_dump(exclude_unset=True)
+
     if db_provider.is_builtin:
-        raise HTTPException(status_code=403, detail="Builtin providers cannot be edited")
-    for key, value in provider.model_dump(exclude_unset=True).items():
+        allowed = {"base_url", "api_key_env", "description", "doc_url", "is_enabled", "config"}
+        for key in list(data.keys()):
+            if key not in allowed:
+                del data[key]
+
+    for key, value in data.items():
         setattr(db_provider, key, value)
     db.commit()
     db.refresh(db_provider)
@@ -140,6 +147,28 @@ def delete_provider(provider_id: int, db: Session = Depends(get_db)):
     db.delete(db_provider)
     db.commit()
     return {"message": "Provider deleted"}
+
+
+@router.post("/{provider_id}/reset", response_model=schemas.ProviderResponse)
+def reset_provider(provider_id: int, db: Session = Depends(get_db)):
+    db_provider = (
+        db.query(models.Provider).filter(models.Provider.id == provider_id).first()
+    )
+    if not db_provider:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    if not db_provider.is_builtin:
+        raise HTTPException(status_code=400, detail="Only builtin providers can be reset")
+
+    defaults = next((p for p in BUILTIN_PROVIDERS if p["key"] == db_provider.key), None)
+    if not defaults:
+        raise HTTPException(status_code=404, detail="Builtin defaults not found")
+
+    for key, value in defaults.items():
+        if key != "is_builtin":
+            setattr(db_provider, key, value)
+    db.commit()
+    db.refresh(db_provider)
+    return db_provider
 
 
 def _discover_openai_models(provider: models.Provider, api_key: str) -> List[dict]:

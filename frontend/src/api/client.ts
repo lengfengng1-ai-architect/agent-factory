@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Agent, Group, Task, TaskStatus } from '../types';
+import type { Agent, Group, Task, TaskStatus, Provider, ProviderModel } from '../types';
 
 const api = axios.create({
   baseURL: '/api',
@@ -29,4 +29,18 @@ export const taskApi = {
   create: (data: Omit<Task, 'id' | 'created_at' | 'updated_at'>) => api.post<Task>('/tasks', data).then(r => r.data),
   update: (id: number, data: Partial<Task>) => api.put<Task>(`/tasks/${id}`, data).then(r => r.data),
   delete: (id: number) => api.delete(`/tasks/${id}`).then(r => r.data),
+};
+
+export const providerApi = {
+  list: () => api.get<Provider[]>('/providers').then(r => r.data),
+  get: (id: number) => api.get<Provider>(`/providers/${id}`).then(r => r.data),
+  create: (data: Omit<Provider, 'id' | 'is_builtin' | 'created_at'>) =>
+    api.post<Provider>('/providers', data).then(r => r.data),
+  update: (id: number, data: Partial<Provider>) =>
+    api.put<Provider>(`/providers/${id}`, data).then(r => r.data),
+  delete: (id: number) => api.delete(`/providers/${id}`).then(r => r.data),
+  discover: (id: number, apiKey?: string) =>
+    api.post(`/providers/${id}/discover`, { api_key: apiKey || '' }).then(r => r.data),
+  getModels: (id: number) =>
+    api.get<ProviderModel[]>(`/providers/${id}/models`).then(r => r.data),
 };

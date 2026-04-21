@@ -29,6 +29,10 @@ export const taskApi = {
   create: (data: Omit<Task, 'id' | 'created_at' | 'updated_at'>) => api.post<Task>('/tasks', data).then(r => r.data),
   update: (id: number, data: Partial<Task>) => api.put<Task>(`/tasks/${id}`, data).then(r => r.data),
   delete: (id: number) => api.delete(`/tasks/${id}`).then(r => r.data),
+  execute: (id: number) => api.post(`/tasks/${id}/execute`).then(r => r.data),
+  status: (id: number) => api.get<{ task_id: number; status: string; progress: number; result: string }>(`/tasks/${id}/status`).then(r => r.data),
+  getConcurrency: () => api.get<{ max_concurrent_tasks: number }>('/tasks/concurrency').then(r => r.data),
+  setConcurrency: (n: number) => api.put('/tasks/concurrency', { max_concurrent_tasks: n }).then(r => r.data),
 };
 
 export const providerApi = {

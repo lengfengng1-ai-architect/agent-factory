@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { DndContext, PointerSensor, useSensor, useSensors, useDroppable } from '@dnd-kit/core'
 import type { DragEndEvent } from '@dnd-kit/core'
-import { Plus } from 'lucide-react'
+import { Plus, Settings } from 'lucide-react'
 import { taskApi } from '../api/client'
 import type { Task, TaskStatus } from '../types'
 import TaskCard from '../components/TaskCard'
@@ -30,12 +30,31 @@ function Column({ id, title, bg, children, count }: { id: string; title: string;
 export default function TasksPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Task | null>(null)
+  const [showConfig, setShowConfig] = useState(false)
   const qc = useQueryClient()
 
-  const { data: tasks = [] } = useQuery({ queryKey: ['tasks'], queryFn: () => taskApi.list() })
+  const { data: tasks = [] } = useQuery({
+    queryKey: ['tasks'],
+    queryFn: () => taskApi.list(),
+    refetchInterval: (query) => {
+      const data = query.state.data as Task[] | undefined
+      const hasRunning = data?.some(t => t.status === 'in_progress') ?? false
+      return hasRunning ? 2000 : false
+    },
+  })
+
+  const { data: concurrencyConfig } = useQuery({
+    queryKey: ['taskConcurrency'],
+    queryFn: () => taskApi.getConcurrency(),
+  })
 
   const create = useMutation({ mutationFn: taskApi.create, onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }) })
   const update = useMutation({ mutationFn: ({ id, data }: { id: number; data: Partial<Task> }) => taskApi.update(id, data), onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }) })
+  const execute = useMutation({ mutationFn: taskApi.execute, onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }) })
+  const setConcurrency = useMutation({
+    mutationFn: taskApi.setConcurrency,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['taskConcurrency'] }),
+  })
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
@@ -46,7 +65,14 @@ export default function TasksPage() {
     const newStatus = String(over.id) as TaskStatus
     const task = tasks.find(t => t.id === taskId)
     if (task && task.status !== newStatus) {
-      update.mutate({ id: taskId, data: { status: newStatus } })
+      update.mutate({ id: taskId, data: { status: newStatus } }, {
+        onSuccess: () => {
+          // Auto-execute when dragged to in_progress
+          if (newStatus === 'in_progress' && task.auto_execute && task.assignee_id) {
+            execute.mutate(taskId)
+          }
+        }
+      })
     }
   }
 
@@ -54,10 +80,34 @@ export default function TasksPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold">Tasks</h2>
-        <button onClick={() => { setEditing(null); setModalOpen(true) }} className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-800">
-          <Plus size={16} /> New Task
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowConfig(v => !v)}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-50 text-gray-700"
+          >
+            <Settings size={14} />
+            配置
+          </button>
+          <button onClick={() => { setEditing(null); setModalOpen(true) }} className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-800">
+            <Plus size={16} /> New Task
+          </button>
+        </div>
       </div>
+
+      {showConfig && (
+        <div className="mb-4 bg-white rounded-lg border border-gray-200 p-3 flex items-center gap-4">
+          <label className="text-sm text-gray-700">同时处理任务数:</label>
+          <input
+            type="number"
+            min={1}
+            max={10}
+            value={concurrencyConfig?.max_concurrent_tasks ?? 3}
+            onChange={e => setConcurrency.mutate(Number(e.target.value))}
+            className="w-20 border border-gray-300 rounded-lg px-2 py-1 text-sm"
+          />
+          <span className="text-xs text-gray-500">当前有 {tasks.filter(t => t.status === 'in_progress').length} 个任务在执行中</span>
+        </div>
+      )}
 
       <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

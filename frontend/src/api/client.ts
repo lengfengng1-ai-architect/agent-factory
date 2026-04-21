@@ -45,3 +45,8 @@ export const providerApi = {
     api.get<ProviderModel[]>(`/providers/${id}/models`).then(r => r.data),
   reset: (id: number) => api.post<Provider>(`/providers/${id}/reset`).then(r => r.data),
 };
+
+export const chatApi = {
+  history: (agentId: number) =>
+    api.get<{ messages: { role: string; content: string; timestamp: string }[] }>(`/agents/${agentId}/chat/history`).then(r => r.data),
+};

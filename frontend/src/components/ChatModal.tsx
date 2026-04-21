@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Bot, User, Send, X } from 'lucide-react'
 import type { Agent } from '../types'
+import { chatApi } from '../api/client'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -17,6 +19,18 @@ export default function ChatModal({ agent, onClose }: Props) {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+
+  const { data: historyData, isLoading: historyLoading } = useQuery({
+    queryKey: ['chat_history', agent.id],
+    queryFn: () => chatApi.history(agent.id),
+    enabled: !!agent.id,
+  })
+
+  useEffect(() => {
+    if (historyData?.messages) {
+      setMessages(historyData.messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })))
+    }
+  }, [historyData])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -128,7 +142,12 @@ export default function ChatModal({ agent, onClose }: Props) {
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          {messages.length === 0 && (
+          {historyLoading && (
+            <div className="flex justify-center mt-10">
+              <span className="inline-block w-5 h-5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+            </div>
+          )}
+          {!historyLoading && messages.length === 0 && (
             <div className="text-center text-gray-400 text-sm mt-10">Start a conversation with {agent.name}</div>
           )}
           {messages.map((msg, idx) => (

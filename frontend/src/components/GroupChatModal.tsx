@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Bot, Send, X, Users } from 'lucide-react'
+import { Bot, Send, X, Users, Maximize2, Minimize2 } from 'lucide-react'
 import { agentApi, groupChatApi } from '../api/client'
 import type { Group } from '../types'
 
@@ -24,6 +24,7 @@ export default function GroupChatModal({ group, onClose }: Props) {
   const [messages, setMessages] = useState<GroupMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [isMaximized, setIsMaximized] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const { data: agents } = useQuery({ queryKey: ['agents'], queryFn: agentApi.list })
@@ -239,8 +240,8 @@ export default function GroupChatModal({ group, onClose }: Props) {
   const isParallel = chatType === 'parallel'
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={onClose}>
-      <div className={`bg-white rounded-xl shadow-xl flex flex-col overflow-hidden ${isParallel ? 'w-full max-w-4xl h-[85vh]' : 'w-full max-w-lg h-[80vh]'}`} onClick={e => e.stopPropagation()}>
+    <div className={`fixed inset-0 bg-black/40 z-50 ${isMaximized ? '' : 'flex items-center justify-center'}`} onClick={onClose}>
+      <div className={`bg-white rounded-xl shadow-xl flex flex-col overflow-hidden transition-all duration-200 ${isMaximized ? 'absolute inset-4' : `${isParallel ? 'w-full max-w-4xl h-[85vh]' : 'w-full max-w-lg h-[80vh]'}`}`} onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
           <div className="flex items-center gap-3">
@@ -260,9 +261,14 @@ export default function GroupChatModal({ group, onClose }: Props) {
               </div>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500">
-            <X size={18} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setIsMaximized(v => !v)} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500" title={isMaximized ? 'Minimize' : 'Maximize'}>
+              {isMaximized ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+            </button>
+            <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500">
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         {/* Agent avatars */}

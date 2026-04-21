@@ -4,6 +4,7 @@ import { Plus, Users, Pencil, Trash2, MessageCircle } from 'lucide-react'
 import { groupApi, agentApi } from '../api/client'
 import type { Group } from '../types'
 import GroupModal from '../components/GroupModal'
+import GroupChatModal from '../components/GroupChatModal'
 
 export default function GroupsPage() {
   const [modalOpen, setModalOpen] = useState(false)
@@ -79,8 +80,7 @@ export default function GroupsPage() {
         ))}
       </div>
       {modalOpen && <GroupModal group={editing} onClose={() => setModalOpen(false)} onSave={handleSave} />}
-      {/* TODO: GroupChatModal will be implemented in Task 6 */}
-      {chatGroup && <div className="hidden">Chat modal placeholder for {chatGroup.name}</div>}
+      {chatGroup && <GroupChatModal group={chatGroup} onClose={() => setChatGroup(null)} />}
     </div>
   )
 }

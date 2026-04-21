@@ -41,7 +41,7 @@ BUILTIN_PROVIDERS = [
     {
         "name": "DeepSeek",
         "key": "deepseek",
-        "base_url": "https://api.deepseek.com",
+        "base_url": "https://api.deepseek.com/v1/",
         "api_key_env": "DEEPSEEK_API_KEY",
         "description": "DeepSeek AI models",
         "doc_url": "https://platform.deepseek.com",

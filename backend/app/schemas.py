@@ -34,6 +34,7 @@ class AgentResponse(AgentBase):
 class GroupBase(BaseModel):
     name: str
     description: Optional[str] = ""
+    chat_type: Optional[str] = "parallel"
     agent_ids: Optional[List[int]] = []
 
 
@@ -43,6 +44,7 @@ class GroupCreate(GroupBase):
 
 class GroupUpdate(GroupBase):
     name: Optional[str] = None
+    chat_type: Optional[str] = None
 
 
 class GroupResponse(GroupBase):

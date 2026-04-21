@@ -25,6 +25,7 @@ class Group(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     description = Column(Text, default="")
+    chat_type = Column(String, default="parallel")
     agent_ids = Column(JSON, default=list)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

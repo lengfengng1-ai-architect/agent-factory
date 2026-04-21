@@ -3,7 +3,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app import models
-from app.redis_client import get_chat_history, append_chat_message
+from app.redis_client import get_chat_history, append_chat_message, append_group_chat_message
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 import json
@@ -57,6 +57,16 @@ def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(get_db))
 
     # Save user message
     append_chat_message(agent_id, "user", user_message)
+    group_id = payload.get("group_id")
+    if group_id:
+        from app.database import get_db as get_db_local
+        db_local = next(get_db_local())
+        try:
+            agent = db_local.query(models.Agent).filter(models.Agent.id == agent_id).first()
+            if agent:
+                append_group_chat_message(group_id, "user", 0, "User", user_message)
+        finally:
+            db_local.close()
 
     # Build messages with history
     history = get_chat_history(agent_id)
@@ -84,6 +94,8 @@ def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(get_db))
                 yield f"data: {json.dumps({'content': text}, ensure_ascii=False)}\n\n"
         # Save assistant message after streaming completes
         append_chat_message(agent_id, "assistant", full_response)
+        if group_id:
+            append_group_chat_message(group_id, "assistant", agent_id, agent.name, full_response)
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")

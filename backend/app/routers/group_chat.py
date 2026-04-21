@@ -55,24 +55,8 @@ def get_group_chat_history_endpoint(group_id: int, db: Session = Depends(get_db)
 
     chat_type = group.chat_type or "parallel"
 
-    if chat_type == "parallel":
-        # Aggregate individual agent histories
-        messages = []
-        for agent_id in (group.agent_ids or []):
-            agent = db.query(models.Agent).filter(models.Agent.id == agent_id).first()
-            if agent:
-                history = redis_client.get_chat_history(agent_id)
-                for msg in history:
-                    messages.append({
-                        **msg,
-                        "agent_id": agent_id,
-                        "agent_name": agent.name,
-                    })
-        messages.sort(key=lambda x: x.get("timestamp", ""))
-        return {"messages": messages}
-    else:
-        # Use group chat history
-        return {"messages": redis_client.get_group_chat_history(group_id)}
+    # All chat types use group-level chat history (isolated from individual agent chats)
+    return {"messages": redis_client.get_group_chat_history(group_id)}
 
 
 @router.post("/{group_id}/chat")

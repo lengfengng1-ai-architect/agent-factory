@@ -79,7 +79,7 @@ export default function GroupChatModal({ group, onClose }: Props) {
         const res = await fetch(`/api/agents/${agent.id}/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text }),
+          body: JSON.stringify({ message: text, group_id: group.id }),
         })
 
         if (!res.ok || !res.body) {

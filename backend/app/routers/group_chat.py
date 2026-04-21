@@ -267,13 +267,50 @@ def _debate_chat(group, user_message, db):
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
+def _build_moderator_expert_messages(agent: models.Agent, user_message: str):
+    """Build messages for expert in moderator mode with context-aware prompts."""
+    system_prompt = agent.system_prompt or "You are a helpful assistant."
+    expert_context = (
+        "\n\n【任务说明】你是一名领域专家。主持人向你提出了一个问题/议题，"
+        "请你基于专业知识给出结构化、有深度的回答。"
+        "请尽量覆盖问题的关键维度，并给出明确的观点和理由。"
+        "回答应当条理清晰，有逻辑性。"
+    )
+    return [
+        SystemMessage(content=system_prompt + expert_context),
+        HumanMessage(content=user_message),
+    ]
+
+
+def _build_moderator_summary_prompt(user_message: str, expert_responses: list) -> str:
+    """Build summary prompt for moderator with structured output guidance."""
+    prompt = (
+        "你是一位经验丰富的主持人。以下是你向各位专家提出的问题以及他们的回答，"
+        "请你综合各方意见，给出一份结构化的总结报告。\n\n"
+        "总结报告请按以下结构撰写：\n"
+        "1. 【各方核心观点】简要概括每位专家的核心论点\n"
+        "2. 【共识与分歧】总结专家之间的共识点和主要分歧\n"
+        "3. 【综合建议】基于专家意见，给出你的综合判断和建议\n\n"
+        f"【议题】\n{user_message}\n\n"
+        "【专家意见】\n\n"
+    )
+    for er in expert_responses:
+        prompt += f"【{er['agent_name']}】\n{er['response']}\n\n"
+    prompt += "请开始撰写总结报告："
+    return prompt
+
+
 def _moderator_chat(group, user_message, db):
     agent_ids = group.agent_ids or []
     if not agent_ids:
         raise HTTPException(status_code=400, detail="Group has no agents")
 
-    moderator_id = agent_ids[0]
-    expert_ids = agent_ids[1:]
+    mod_cfg = (group.config or {}).get("moderator", {})
+    moderator_id = mod_cfg.get("moderator_id")
+    if not moderator_id and agent_ids:
+        moderator_id = agent_ids[0]
+
+    expert_ids = [aid for aid in agent_ids if aid != moderator_id]
 
     redis_client.append_group_chat_message(group.id, "user", 0, "User", user_message)
 
@@ -292,8 +329,7 @@ def _moderator_chat(group, user_message, db):
                 continue
 
             llm = _create_llm(agent, provider)
-            messages = [SystemMessage(content=agent.system_prompt or "You are a helpful assistant.")]
-            messages.append(HumanMessage(content=user_message))
+            messages = _build_moderator_expert_messages(agent, user_message)
 
             response = ""
             async for chunk in llm.astream(messages):
@@ -313,23 +349,27 @@ def _moderator_chat(group, user_message, db):
                 models.Provider.key == (moderator.provider or "kimi").lower()
             ).first()
             if provider and provider.is_enabled:
-                summary_prompt = "请作为主持人，综合以下专家意见，给出一份清晰的总结：\n\n"
-                for er in expert_responses:
-                    summary_prompt += f"【{er['agent_name']}】: {er['response']}\n\n"
+                summary_prompt = _build_moderator_summary_prompt(user_message, expert_responses)
 
                 llm = _create_llm(moderator, provider)
-                messages = [SystemMessage(content=moderator.system_prompt or "You are a helpful assistant.")]
-                messages.append(HumanMessage(content=summary_prompt))
+                messages = [
+                    SystemMessage(
+                        content=moderator.system_prompt or "You are a helpful assistant."
+                    ),
+                    HumanMessage(content=summary_prompt),
+                ]
 
                 full_response = ""
                 async for chunk in llm.astream(messages):
                     text = chunk.content
                     if text:
                         full_response += text
-                        yield f"data: {json.dumps({'phase': 'moderator', 'agent_id': moderator.id, 'agent_name': moderator.name + ' (主持人)', 'content': text, 'done': False}, ensure_ascii=False)}\n\n"
+                        yield f"data: {json.dumps({'phase': 'moderator', 'agent_id': moderator.id, 'agent_name': moderator.name, 'content': text, 'done': False}, ensure_ascii=False)}\n\n"
 
-                redis_client.append_group_chat_message(group.id, "assistant", moderator.id, moderator.name + " (主持人)", full_response)
-                yield f"data: {json.dumps({'phase': 'moderator', 'agent_id': moderator.id, 'agent_name': moderator.name + ' (主持人)', 'content': '', 'done': True}, ensure_ascii=False)}\n\n"
+                redis_client.append_group_chat_message(
+                    group.id, "assistant", moderator.id, moderator.name, full_response
+                )
+                yield f"data: {json.dumps({'phase': 'moderator', 'agent_id': moderator.id, 'agent_name': moderator.name, 'content': '', 'done': True}, ensure_ascii=False)}\n\n"
 
         yield "data: [DONE]\n\n"
 

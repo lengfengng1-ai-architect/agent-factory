@@ -36,6 +36,7 @@ class GroupBase(BaseModel):
     description: Optional[str] = ""
     chat_type: Optional[str] = "parallel"
     agent_ids: Optional[List[int]] = []
+    config: Optional[Dict[str, Any]] = {}
 
 
 class GroupCreate(GroupBase):
@@ -45,6 +46,8 @@ class GroupCreate(GroupBase):
 class GroupUpdate(GroupBase):
     name: Optional[str] = None
     chat_type: Optional[str] = None
+    agent_ids: Optional[List[int]] = None
+    config: Optional[Dict[str, Any]] = None
 
 
 class GroupResponse(GroupBase):

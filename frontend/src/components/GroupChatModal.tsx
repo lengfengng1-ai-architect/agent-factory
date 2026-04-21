@@ -340,9 +340,6 @@ export default function GroupChatModal({ group, onClose }: Props) {
                         {msg.agent_name}
                         {msg.phase && ` · ${msg.phase === 'expert' ? '专家' : '主持人'}`}
                         {msg.round && ` · Round ${msg.round}`}
-                        {chatType === 'debate' && msg.agent_id >= 0 && (
-                          ` · ${msg.agent_id === groupAgents[0]?.id ? '正方' : '反方'}`
-                        )}
                       </div>
                       <div className="px-4 py-2 rounded-2xl bg-gray-100 text-gray-900 text-sm rounded-bl-md whitespace-pre-wrap">
                         {msg.content || (loading && idx === messages.length - 1 ? (

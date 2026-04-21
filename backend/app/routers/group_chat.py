@@ -120,36 +120,99 @@ def _brainstorm_chat(group, user_message, db):
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
+def _build_debate_messages(agent: models.Agent, history: list, side: str, round_num: int):
+    """Build messages for debate mode with context-aware prompts."""
+    system_prompt = agent.system_prompt or "You are a helpful assistant."
+    debate_context = f"\n\n【辩论规则】你正在参与一场辩论，你的阵营是【{side}】。"
+    if round_num > 1:
+        debate_context += (
+            f" 这是第{round_num}轮。请仔细回顾之前的辩论内容，"
+            "针对性地回应对方的观点，同时捍卫和深化你的立场。"
+        )
+    else:
+        debate_context += (
+            " 这是第1轮，请首先清晰、有力地阐述你的立场和核心论点。"
+        )
+    debate_context += " 你的发言应当有逻辑性、有说服力。"
+
+    messages = [SystemMessage(content=system_prompt + debate_context)]
+
+    for msg in history[:-1]:
+        if msg["role"] == "user":
+            messages.append(HumanMessage(content=msg["content"]))
+        elif msg["role"] == "assistant":
+            prefix = f"[{msg.get('agent_name', 'Agent')}]: "
+            messages.append(AIMessage(content=prefix + msg["content"]))
+
+    if history and history[-1]["role"] == "user":
+        messages.append(HumanMessage(content=history[-1]["content"]))
+
+    return messages
+
+
+def _build_summary_prompt(history: list) -> str:
+    """Build summary prompt from debate history."""
+    prompt = (
+        "请作为辩论总结者，基于以下完整的辩论记录，给出一份公正、全面的总结。"
+        "总结应包括：\n"
+        "1. 各方的核心论点\n"
+        "2. 辩论中的关键交锋点\n"
+        "3. 你的综合评判\n\n"
+        "【辩论记录】\n\n"
+    )
+    for msg in history:
+        if msg["role"] == "user":
+            prompt += f"[用户]: {msg['content']}\n"
+        elif msg["role"] == "assistant":
+            prompt += f"[{msg.get('agent_name', 'Agent')}]: {msg['content']}\n"
+    prompt += "\n请给出你的总结："
+    return prompt
+
+
 def _debate_chat(group, user_message, db):
-    agent_ids = (group.agent_ids or [])[:2]
+    agent_ids = group.agent_ids or []
     if len(agent_ids) < 2:
         raise HTTPException(status_code=400, detail="Debate mode requires at least 2 agents")
+
+    debate_cfg = (group.config or {}).get("debate", {})
+
+    # Auto-assign compatibility when no config exists
+    pro_ids = debate_cfg.get("pro_agent_ids", [])
+    con_ids = debate_cfg.get("con_agent_ids", [])
+    if not pro_ids and not con_ids:
+        pro_ids = [agent_ids[0]]
+        con_ids = agent_ids[1:]
+
+    rounds = debate_cfg.get("rounds", 3)
+    summary_agent_id = debate_cfg.get("summary_agent_id")
+
+    if not pro_ids or not con_ids:
+        raise HTTPException(
+            status_code=400, detail="Debate mode requires at least one agent on each side"
+        )
 
     redis_client.append_group_chat_message(group.id, "user", 0, "User", user_message)
 
     async def stream():
         history = redis_client.get_group_chat_history(group.id)
-        rounds = 3
 
         for r in range(rounds):
-            for i, agent_id in enumerate(agent_ids):
+            # Alternate: pro first, then con; rotate agents within each side
+            for side, side_ids in [("正方", pro_ids), ("反方", con_ids)]:
+                agent_idx = r % len(side_ids)
+                agent_id = side_ids[agent_idx]
+
                 agent = db.query(models.Agent).filter(models.Agent.id == agent_id).first()
                 if not agent:
                     continue
 
-                side = "正方" if i == 0 else "反方"
                 provider = db.query(models.Provider).filter(
                     models.Provider.key == (agent.provider or "kimi").lower()
                 ).first()
                 if not provider or not provider.is_enabled:
                     continue
 
-                messages = _build_agent_messages(agent, history)
-                # Add debate context to the last user message
-                if messages and isinstance(messages[-1], HumanMessage):
-                    debate_prompt = f"【这是第{r+1}轮辩论，你是{side}。请针对辩题发表你的观点。】\n\n"
-                    messages[-1] = HumanMessage(content=debate_prompt + messages[-1].content)
-
+                messages = _build_debate_messages(agent, history, side, r + 1)
                 llm = _create_llm(agent, provider)
                 full_response = ""
 
@@ -157,11 +220,47 @@ def _debate_chat(group, user_message, db):
                     text = chunk.content
                     if text:
                         full_response += text
-                        yield f"data: {json.dumps({'agent_id': agent.id, 'agent_name': f'{agent.name} ({side})', 'content': text, 'done': False, 'round': r+1}, ensure_ascii=False)}\n\n"
+                        yield f"data: {json.dumps({'agent_id': agent.id, 'agent_name': f'{agent.name} ({side})', 'content': text, 'done': False, 'round': r+1, 'side': side}, ensure_ascii=False)}\n\n"
 
-                redis_client.append_group_chat_message(group.id, "assistant", agent.id, f"{agent.name} ({side})", full_response)
-                yield f"data: {json.dumps({'agent_id': agent.id, 'agent_name': f'{agent.name} ({side})', 'content': '', 'done': True, 'round': r+1}, ensure_ascii=False)}\n\n"
+                redis_client.append_group_chat_message(
+                    group.id, "assistant", agent.id, f"{agent.name} ({side})", full_response
+                )
+                yield f"data: {json.dumps({'agent_id': agent.id, 'agent_name': f'{agent.name} ({side})', 'content': '', 'done': True, 'round': r+1, 'side': side}, ensure_ascii=False)}\n\n"
                 history = redis_client.get_group_chat_history(group.id)
+
+        # Summary phase
+        if summary_agent_id:
+            summary_agent = (
+                db.query(models.Agent).filter(models.Agent.id == summary_agent_id).first()
+            )
+            if summary_agent:
+                provider = db.query(models.Provider).filter(
+                    models.Provider.key == (summary_agent.provider or "kimi").lower()
+                ).first()
+                if provider and provider.is_enabled:
+                    summary_prompt = _build_summary_prompt(
+                        redis_client.get_group_chat_history(group.id)
+                    )
+                    messages = [
+                        SystemMessage(
+                            content=summary_agent.system_prompt or "You are a helpful assistant."
+                        ),
+                        HumanMessage(content=summary_prompt),
+                    ]
+                    llm = _create_llm(summary_agent, provider)
+                    full_response = ""
+
+                    async for chunk in llm.astream(messages):
+                        text = chunk.content
+                        if text:
+                            full_response += text
+                            yield f"data: {json.dumps({'agent_id': summary_agent.id, 'agent_name': f'{summary_agent.name} (总结)', 'content': text, 'done': False, 'round': rounds+1, 'phase': 'summary'}, ensure_ascii=False)}\n\n"
+
+                    redis_client.append_group_chat_message(
+                        group.id, "assistant", summary_agent.id,
+                        f"{summary_agent.name} (总结)", full_response
+                    )
+                    yield f"data: {json.dumps({'agent_id': summary_agent.id, 'agent_name': f'{summary_agent.name} (总结)', 'content': '', 'done': True, 'round': rounds+1, 'phase': 'summary'}, ensure_ascii=False)}\n\n"
 
         yield "data: [DONE]\n\n"
 

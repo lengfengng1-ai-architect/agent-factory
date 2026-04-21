@@ -18,6 +18,7 @@ export interface Group {
   description: string;
   agent_ids: number[];
   chat_type: string;
+  config?: Record<string, any>;
   created_at: string;
 }
 

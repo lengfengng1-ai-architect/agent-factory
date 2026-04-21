@@ -1,9 +1,18 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 from app.database import engine, Base, get_db
 from app.routers import agents, groups, tasks, chat, models, providers, group_chat
 
 Base.metadata.create_all(bind=engine)
+
+# SQLite migration: add config column to groups table if missing
+with engine.connect() as conn:
+    try:
+        conn.execute(text("SELECT config FROM groups LIMIT 1"))
+    except Exception:
+        conn.execute(text("ALTER TABLE groups ADD COLUMN config TEXT DEFAULT '{}'"))
+        conn.commit()
 
 app = FastAPI(title="Agent Factory API", version="1.0.0")
 

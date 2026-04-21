@@ -27,14 +27,6 @@ export default function App() {
             <Bot size={18} /> Agents
           </button>
           <button
-            onClick={() => setTab('providers')}
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-              tab === 'providers' ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100'
-            }`}
-          >
-            <Plug size={18} /> Providers
-          </button>
-          <button
             onClick={() => setTab('groups')}
             className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
               tab === 'groups' ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100'
@@ -49,6 +41,14 @@ export default function App() {
             }`}
           >
             <ClipboardList size={18} /> Tasks
+          </button>
+          <button
+            onClick={() => setTab('providers')}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+              tab === 'providers' ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100'
+            }`}
+          >
+            <Plug size={18} /> Providers
           </button>
         </nav>
       </aside>

@@ -1,13 +1,14 @@
 import type { Agent } from '../types'
-import { Bot, Pencil, Trash2 } from 'lucide-react'
+import { Bot, MessageSquare, Pencil, Trash2 } from 'lucide-react'
 
 interface Props {
   agent: Agent
   onEdit: (agent: Agent) => void
   onDelete: (id: number) => void
+  onChat: (agent: Agent) => void
 }
 
-export default function AgentCard({ agent, onEdit, onDelete }: Props) {
+export default function AgentCard({ agent, onEdit, onDelete, onChat }: Props) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow">
       <div className="flex items-start justify-between">
@@ -21,8 +22,15 @@ export default function AgentCard({ agent, onEdit, onDelete }: Props) {
           </div>
         </div>
         <div className="flex gap-1">
-          <button onClick={() => onEdit(agent)} className="p-1.5 hover:bg-gray-100 rounded-lg"><Pencil size={16} /></button>
-          <button onClick={() => onDelete(agent.id)} className="p-1.5 hover:bg-red-50 text-red-600 rounded-lg"><Trash2 size={16} /></button>
+          <button onClick={() => onChat(agent)} className="p-1.5 hover:bg-blue-50 text-blue-600 rounded-lg" title="Chat">
+            <MessageSquare size={16} />
+          </button>
+          <button onClick={() => onEdit(agent)} className="p-1.5 hover:bg-gray-100 rounded-lg" title="Edit">
+            <Pencil size={16} />
+          </button>
+          <button onClick={() => onDelete(agent.id)} className="p-1.5 hover:bg-red-50 text-red-600 rounded-lg" title="Delete">
+            <Trash2 size={16} />
+          </button>
         </div>
       </div>
       <div className="mt-3 text-xs text-gray-400">ID: {agent.id}</div>

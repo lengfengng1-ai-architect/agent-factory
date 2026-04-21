@@ -5,10 +5,12 @@ import { agentApi } from '../api/client'
 import type { Agent } from '../types'
 import AgentCard from '../components/AgentCard'
 import AgentModal from '../components/AgentModal'
+import ChatModal from '../components/ChatModal'
 
 export default function AgentsPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Agent | null>(null)
+  const [chatAgent, setChatAgent] = useState<Agent | null>(null)
   const qc = useQueryClient()
 
   const { data: agents = [], isLoading } = useQuery({ queryKey: ['agents'], queryFn: agentApi.list })
@@ -17,7 +19,7 @@ export default function AgentsPage() {
   const update = useMutation({ mutationFn: ({ id, data }: { id: number; data: Partial<Agent> }) => agentApi.update(id, data), onSuccess: () => qc.invalidateQueries({ queryKey: ['agents'] }) })
   const remove = useMutation({ mutationFn: agentApi.delete, onSuccess: () => qc.invalidateQueries({ queryKey: ['agents'] }) })
 
-  const handleSave = (data: { name: string; description: string; config: Record<string, unknown> }) => {
+  const handleSave = (data: { name: string; description: string; config: Record<string, unknown>; system_prompt: string; model: string; api_url: string; api_key: string }) => {
     if (editing) update.mutate({ id: editing.id, data })
     else create.mutate({ ...data, avatar: '' })
   }
@@ -34,10 +36,17 @@ export default function AgentsPage() {
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {agents.map(a => (
-          <AgentCard key={a.id} agent={a} onEdit={a => { setEditing(a); setModalOpen(true) }} onDelete={id => remove.mutate(id)} />
+          <AgentCard
+            key={a.id}
+            agent={a}
+            onEdit={a => { setEditing(a); setModalOpen(true) }}
+            onDelete={id => remove.mutate(id)}
+            onChat={a => setChatAgent(a)}
+          />
         ))}
       </div>
       {modalOpen && <AgentModal agent={editing} onClose={() => setModalOpen(false)} onSave={handleSave} />}
+      {chatAgent && <ChatModal agent={chatAgent} onClose={() => setChatAgent(null)} />}
     </div>
   )
 }

@@ -4,6 +4,10 @@ export interface Agent {
   description: string;
   avatar: string;
   config: Record<string, any>;
+  system_prompt: string;
+  model: string;
+  api_url: string;
+  api_key: string;
   created_at: string;
 }
 

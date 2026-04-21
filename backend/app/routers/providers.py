@@ -1,3 +1,4 @@
+import requests
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
@@ -129,3 +130,78 @@ def delete_provider(provider_id: int, db: Session = Depends(get_db)):
     db.delete(db_provider)
     db.commit()
     return {"message": "Provider deleted"}
+
+
+def _discover_openai_models(provider: models.Provider, api_key: str) -> List[dict]:
+    """Discover models from OpenAI-compatible /models endpoint."""
+    url = provider.base_url.rstrip("/") + "/models"
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    resp = requests.get(url, headers=headers, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+    models_list = []
+    for m in data.get("data", []):
+        models_list.append({
+            "model_id": m.get("id", ""),
+            "name": m.get("id", ""),
+            "context_window": None,
+        })
+    return models_list
+
+
+def _discover_ollama_models(provider: models.Provider) -> List[dict]:
+    """Discover models from Ollama /api/tags endpoint."""
+    base = provider.base_url.rstrip("/")
+    if base.endswith("/v1"):
+        base = base[:-3]
+    url = base.rstrip("/") + "/api/tags"
+    resp = requests.get(url, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+    models_list = []
+    for m in data.get("models", []):
+        name = m.get("name", "")
+        models_list.append({
+            "model_id": name,
+            "name": name,
+            "context_window": None,
+        })
+    return models_list
+
+
+@router.post("/{provider_id}/discover")
+def discover_models(provider_id: int, payload: dict = {}, db: Session = Depends(get_db)):
+    provider = db.query(models.Provider).filter(models.Provider.id == provider_id).first()
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    if not provider.is_enabled:
+        raise HTTPException(status_code=400, detail="Provider is disabled")
+
+    method = (provider.config or {}).get("discovery_method", "none")
+    if method == "none":
+        raise HTTPException(status_code=400, detail="This provider does not support model discovery")
+
+    api_key = payload.get("api_key", "")
+    try:
+        if method == "openai":
+            discovered = _discover_openai_models(provider, api_key)
+        elif method == "ollama":
+            discovered = _discover_ollama_models(provider)
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown discovery method: {method}")
+    except requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"Failed to discover models: {str(e)}")
+
+    db.query(models.ProviderModel).filter(models.ProviderModel.provider_id == provider_id).delete()
+    for m in discovered:
+        db.add(models.ProviderModel(provider_id=provider_id, **m))
+    db.commit()
+
+    return {"discovered": len(discovered), "models": discovered}
+
+
+@router.get("/{provider_id}/models", response_model=List[schemas.ProviderModelResponse])
+def list_provider_models(provider_id: int, db: Session = Depends(get_db)):
+    return db.query(models.ProviderModel).filter(
+        models.ProviderModel.provider_id == provider_id
+    ).order_by(models.ProviderModel.name).all()

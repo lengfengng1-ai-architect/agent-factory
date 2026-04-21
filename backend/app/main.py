@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base, get_db
-from app.routers import agents, groups, tasks, chat, models, providers
+from app.routers import agents, groups, tasks, chat, models, providers, group_chat
 
 Base.metadata.create_all(bind=engine)
 
@@ -21,6 +21,7 @@ app.include_router(tasks.router, prefix="/api/tasks", tags=["tasks"])
 app.include_router(chat.router, prefix="/api/agents", tags=["chat"])
 app.include_router(models.router, prefix="/api", tags=["models"])
 app.include_router(providers.router, prefix="/api/providers", tags=["providers"])
+app.include_router(group_chat.router, prefix="/api/groups", tags=["group_chat"])
 
 
 @app.get("/api/health")

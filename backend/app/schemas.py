@@ -9,6 +9,7 @@ class AgentBase(BaseModel):
     avatar: Optional[str] = ""
     config: Optional[Dict[str, Any]] = {}
     system_prompt: Optional[str] = "You are a helpful assistant."
+    provider: Optional[str] = "kimi"
     model: Optional[str] = "kimi-latest"
     api_url: Optional[str] = "https://api.kimi.com/coding/"
     api_key: Optional[str] = ""

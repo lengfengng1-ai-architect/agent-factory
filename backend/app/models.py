@@ -12,6 +12,7 @@ class Agent(Base):
     avatar = Column(String, default="")
     config = Column(JSON, default=dict)
     system_prompt = Column(Text, default="You are a helpful assistant.")
+    provider = Column(String, default="kimi")
     model = Column(String, default="kimi-latest")
     api_url = Column(String, default="https://api.kimi.com/coding/")
     api_key = Column(String, default="")

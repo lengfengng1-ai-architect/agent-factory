@@ -72,12 +72,14 @@ export default function ChatModal({ agent, onClose }: Props) {
             const parsed = JSON.parse(data) as { content?: string }
             const chunk = parsed.content || ''
             setMessages(prev => {
-              const next = [...prev]
-              const last = next[next.length - 1]
+              const last = prev[prev.length - 1]
               if (last && last.role === 'assistant') {
-                last.content += chunk
+                return [
+                  ...prev.slice(0, -1),
+                  { ...last, content: last.content + chunk }
+                ]
               }
-              return next
+              return prev
             })
           } catch {
             // ignore malformed JSON

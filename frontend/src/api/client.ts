@@ -50,3 +50,8 @@ export const chatApi = {
   history: (agentId: number) =>
     api.get<{ messages: { role: string; content: string; timestamp: string }[] }>(`/agents/${agentId}/chat/history`).then(r => r.data),
 };
+
+export const groupChatApi = {
+  history: (groupId: number) =>
+    api.get<{ messages: { role: string; agent_id: number; agent_name: string; content: string; timestamp: string }[] }>(`/groups/${groupId}/chat/history`).then(r => r.data),
+};

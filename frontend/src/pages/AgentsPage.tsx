@@ -19,7 +19,7 @@ export default function AgentsPage() {
   const update = useMutation({ mutationFn: ({ id, data }: { id: number; data: Partial<Agent> }) => agentApi.update(id, data), onSuccess: () => qc.invalidateQueries({ queryKey: ['agents'] }) })
   const remove = useMutation({ mutationFn: agentApi.delete, onSuccess: () => qc.invalidateQueries({ queryKey: ['agents'] }) })
 
-  const handleSave = (data: { name: string; description: string; config: Record<string, unknown>; system_prompt: string; model: string; api_url: string; api_key: string }) => {
+  const handleSave = (data: { name: string; description: string; config: Record<string, unknown>; system_prompt: string; model: string; api_url: string; api_key: string; provider: string }) => {
     if (editing) update.mutate({ id: editing.id, data })
     else create.mutate({ ...data, avatar: '' })
   }

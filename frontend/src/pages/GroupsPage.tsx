@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Users, Pencil, Trash2 } from 'lucide-react'
+import { Plus, Users, Pencil, Trash2, MessageCircle } from 'lucide-react'
 import { groupApi, agentApi } from '../api/client'
 import type { Group } from '../types'
 import GroupModal from '../components/GroupModal'
@@ -8,6 +8,7 @@ import GroupModal from '../components/GroupModal'
 export default function GroupsPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Group | null>(null)
+  const [chatGroup, setChatGroup] = useState<Group | null>(null)
   const qc = useQueryClient()
 
   const { data: groups = [] } = useQuery({ queryKey: ['groups'], queryFn: groupApi.list })
@@ -18,6 +19,15 @@ export default function GroupsPage() {
   const remove = useMutation({ mutationFn: groupApi.delete, onSuccess: () => qc.invalidateQueries({ queryKey: ['groups'] }) })
 
   const agentMap = new Map(agents.map(a => [a.id, a.name]))
+
+  const handleSave = (data: { name: string; description: string; agent_ids: number[]; chat_type: string }) => {
+    if (editing) update.mutate({ id: editing.id, data })
+    else create.mutate(data)
+  }
+
+  const handleChat = (group: Group) => {
+    setChatGroup(group)
+  }
 
   return (
     <div>
@@ -36,11 +46,23 @@ export default function GroupsPage() {
                   <Users size={20} />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-gray-900">{g.name}</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-gray-900">{g.name}</h3>
+                    <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full border border-gray-200">
+                      {g.chat_type === 'parallel' && '并行咨询'}
+                      {g.chat_type === 'brainstorm' && '头脑风暴'}
+                      {g.chat_type === 'debate' && '辩论'}
+                      {g.chat_type === 'moderator' && '主持人'}
+                      {!g.chat_type && '并行咨询'}
+                    </span>
+                  </div>
                   <p className="text-sm text-gray-500">{g.description}</p>
                 </div>
               </div>
               <div className="flex gap-1">
+                <button onClick={() => handleChat(g)} className="p-1.5 hover:bg-indigo-50 text-indigo-600 rounded-lg" title="Chat">
+                  <MessageCircle size={16} />
+                </button>
                 <button onClick={() => { setEditing(g); setModalOpen(true) }} className="p-1.5 hover:bg-gray-100 rounded-lg"><Pencil size={16} /></button>
                 <button onClick={() => remove.mutate(g.id)} className="p-1.5 hover:bg-red-50 text-red-600 rounded-lg"><Trash2 size={16} /></button>
               </div>
@@ -56,10 +78,9 @@ export default function GroupsPage() {
           </div>
         ))}
       </div>
-      {modalOpen && <GroupModal group={editing} onClose={() => setModalOpen(false)} onSave={data => {
-        if (editing) update.mutate({ id: editing.id, data })
-        else create.mutate(data)
-      }} />}
+      {modalOpen && <GroupModal group={editing} onClose={() => setModalOpen(false)} onSave={handleSave} />}
+      {/* TODO: GroupChatModal will be implemented in Task 6 */}
+      {chatGroup && <div className="hidden">Chat modal placeholder for {chatGroup.name}</div>}
     </div>
   )
 }

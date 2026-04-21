@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import AgentsPage from './pages/AgentsPage'
+import ProvidersPage from './pages/ProvidersPage'
 import GroupsPage from './pages/GroupsPage'
 import TasksPage from './pages/TasksPage'
-import { Bot, Users, ClipboardList } from 'lucide-react'
+import { Bot, Plug, Users, ClipboardList } from 'lucide-react'
 
-type Tab = 'agents' | 'groups' | 'tasks'
+type Tab = 'agents' | 'providers' | 'groups' | 'tasks'
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('agents')
@@ -24,6 +25,14 @@ export default function App() {
             }`}
           >
             <Bot size={18} /> Agents
+          </button>
+          <button
+            onClick={() => setTab('providers')}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+              tab === 'providers' ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100'
+            }`}
+          >
+            <Plug size={18} /> Providers
           </button>
           <button
             onClick={() => setTab('groups')}
@@ -46,6 +55,7 @@ export default function App() {
 
       <main className="flex-1 p-8 overflow-auto">
         {tab === 'agents' && <AgentsPage />}
+        {tab === 'providers' && <ProvidersPage />}
         {tab === 'groups' && <GroupsPage />}
         {tab === 'tasks' && <TasksPage />}
       </main>

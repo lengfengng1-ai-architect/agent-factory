@@ -49,6 +49,16 @@ BUILTIN_PROVIDERS = [
         "config": {"discovery_method": "openai", "discovery_endpoint": "/models"},
     },
     {
+        "name": "阿里云百炼",
+        "key": "alibaba",
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "api_key_env": "DASHSCOPE_API_KEY",
+        "description": "阿里云百炼 Qwen 系列模型",
+        "doc_url": "https://help.aliyun.com/zh/model-studio/compatibility-of-openai-with-dashscope",
+        "is_builtin": True,
+        "config": {"discovery_method": "none"},
+    },
+    {
         "name": "Custom",
         "key": "custom",
         "base_url": "",

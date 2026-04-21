@@ -21,6 +21,12 @@ BUILTIN_FALLBACKS = {
         {"id": "deepseek-chat", "name": "DeepSeek Chat (V3.2)"},
         {"id": "deepseek-reasoner", "name": "DeepSeek Reasoner (V3.2)"},
     ],
+    "alibaba": [
+        {"id": "qwen-plus", "name": "Qwen Plus"},
+        {"id": "qwen-max", "name": "Qwen Max"},
+        {"id": "qwen-turbo", "name": "Qwen Turbo"},
+        {"id": "qwen-coder-plus", "name": "Qwen Coder Plus"},
+    ],
 }
 
 

@@ -17,6 +17,9 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
   const [description, setDescription] = useState('')
   const [config, setConfig] = useState('{}')
   const [systemPrompt, setSystemPrompt] = useState('')
+  const [enableBrowsing, setEnableBrowsing] = useState(false)
+  const [enableFileAccess, setEnableFileAccess] = useState(false)
+  const [fileAccessRoot, setFileAccessRoot] = useState('./workspace')
   const [model, setModel] = useState('')
   const [apiUrl, setApiUrl] = useState('')
   const [apiKey, setApiKey] = useState('')
@@ -50,6 +53,9 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
       setModel(agent.model || '')
       setApiUrl(agent.api_url || '')
       setApiKey(agent.api_key || '')
+      setEnableBrowsing(!!agent.config?.enable_browsing)
+      setEnableFileAccess(!!agent.config?.enable_file_access)
+      setFileAccessRoot(agent.config?.file_access_root || './workspace')
 
       if (providers) {
         const matched = providers.find(p => p.key === agent.provider) || null
@@ -64,6 +70,9 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
       setApiUrl('')
       setApiKey('')
       setSelectedProvider(null)
+      setEnableBrowsing(false)
+      setEnableFileAccess(false)
+      setFileAccessRoot('./workspace')
     }
   }, [agent, providers])
 
@@ -105,10 +114,20 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
     e.preventDefault()
     let parsed: Record<string, unknown> = {}
     try { parsed = JSON.parse(config) } catch { /* ignore */ }
+    const toolConfig: Record<string, unknown> = {
+      ...parsed,
+      enable_browsing: enableBrowsing,
+      enable_file_access: enableFileAccess,
+    }
+    if (enableFileAccess) {
+      toolConfig.file_access_root = fileAccessRoot
+    } else {
+      delete toolConfig.file_access_root
+    }
     onSave({
       name,
       description,
-      config: parsed,
+      config: toolConfig,
       system_prompt: systemPrompt,
       model,
       api_url: apiUrl,
@@ -203,9 +222,44 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
               <input className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" value={model} onChange={e => handleModelChange(e.target.value)} />
             )}
           </div>
+          <div className="border border-gray-200 rounded-lg p-3 space-y-3">
+            <div className="text-sm font-medium text-gray-900">工具配置</div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={enableBrowsing}
+                onChange={e => setEnableBrowsing(e.target.checked)}
+                className="rounded border-gray-300"
+              />
+              <span className="text-sm text-gray-700">启用浏览器访问（搜索网页）</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={enableFileAccess}
+                onChange={e => setEnableFileAccess(e.target.checked)}
+                className="rounded border-gray-300"
+              />
+              <span className="text-sm text-gray-700">启用文件读写</span>
+            </label>
+            {enableFileAccess && (
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">文件访问根目录</label>
+                <input
+                  className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono"
+                  value={fileAccessRoot}
+                  onChange={e => setFileAccessRoot(e.target.value)}
+                  placeholder="./workspace"
+                />
+                <p className="mt-1 text-xs text-gray-500">Agent 只能访问此目录下的文件，留空则使用默认沙盒 workspace/{agent_id}/</p>
+              </div>
+            )}
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700">Config (JSON)</label>
-            <textarea className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono" rows={4} value={config} onChange={e => setConfig(e.target.value)} />
+            <textarea className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono" rows={3} value={config} onChange={e => setConfig(e.target.value)} />
+            <p className="mt-1 text-xs text-gray-500">工具配置会自动合并到此处，也可手动添加其他配置</p>
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-50">Cancel</button>

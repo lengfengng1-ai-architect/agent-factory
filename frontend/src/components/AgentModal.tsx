@@ -251,7 +251,7 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
                   onChange={e => setFileAccessRoot(e.target.value)}
                   placeholder="./workspace"
                 />
-                <p className="mt-1 text-xs text-gray-500">Agent 只能访问此目录下的文件，留空则使用默认沙盒 workspace/{agent_id}/</p>
+                <p className="mt-1 text-xs text-gray-500">Agent 只能访问此目录下的文件，留空则使用默认沙盒 workspace/&#123;agent_id&#125;/</p>
               </div>
             )}
           </div>

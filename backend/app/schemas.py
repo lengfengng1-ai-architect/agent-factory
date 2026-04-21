@@ -77,3 +77,48 @@ class TaskResponse(TaskBase):
 
     class Config:
         from_attributes = True
+
+
+class ProviderBase(BaseModel):
+    name: str
+    key: str
+    base_url: str
+    api_key_env: Optional[str] = ""
+    description: Optional[str] = ""
+    doc_url: Optional[str] = ""
+    is_enabled: Optional[bool] = True
+    config: Optional[Dict[str, Any]] = {}
+
+
+class ProviderCreate(ProviderBase):
+    pass
+
+
+class ProviderUpdate(ProviderBase):
+    name: Optional[str] = None
+    key: Optional[str] = None
+    base_url: Optional[str] = None
+
+
+class ProviderResponse(ProviderBase):
+    id: int
+    is_builtin: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ProviderModelBase(BaseModel):
+    provider_id: int
+    model_id: str
+    name: str
+    context_window: Optional[int] = None
+
+
+class ProviderModelResponse(ProviderModelBase):
+    id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

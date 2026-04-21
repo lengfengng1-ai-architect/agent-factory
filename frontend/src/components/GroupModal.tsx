@@ -16,6 +16,10 @@ interface DebateConfig {
   summary_agent_id?: number
 }
 
+interface ModeratorConfig {
+  moderator_id?: number
+}
+
 export default function GroupModal({ group, onClose, onSave }: Props) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -27,6 +31,9 @@ export default function GroupModal({ group, onClose, onSave }: Props) {
     rounds: 3,
     summary_agent_id: undefined,
   })
+  const [moderatorConfig, setModeratorConfig] = useState<ModeratorConfig>({
+    moderator_id: undefined,
+  })
 
   const { data: agents = [] } = useQuery({ queryKey: ['agents'], queryFn: agentApi.list })
 
@@ -36,14 +43,18 @@ export default function GroupModal({ group, onClose, onSave }: Props) {
       setDescription(group.description)
       setSelectedAgentIds(group.agent_ids || [])
       setChatType(group.chat_type || 'parallel')
-      const cfg = group.config?.debate as DebateConfig | undefined
-      if (cfg) {
+      const dCfg = group.config?.debate as DebateConfig | undefined
+      if (dCfg) {
         setDebateConfig({
-          pro_agent_ids: cfg.pro_agent_ids || [],
-          con_agent_ids: cfg.con_agent_ids || [],
-          rounds: cfg.rounds ?? 3,
-          summary_agent_id: cfg.summary_agent_id,
+          pro_agent_ids: dCfg.pro_agent_ids || [],
+          con_agent_ids: dCfg.con_agent_ids || [],
+          rounds: dCfg.rounds ?? 3,
+          summary_agent_id: dCfg.summary_agent_id,
         })
+      }
+      const mCfg = group.config?.moderator as ModeratorConfig | undefined
+      if (mCfg) {
+        setModeratorConfig({ moderator_id: mCfg.moderator_id })
       }
     } else {
       setName('')
@@ -51,6 +62,7 @@ export default function GroupModal({ group, onClose, onSave }: Props) {
       setSelectedAgentIds([])
       setChatType('parallel')
       setDebateConfig({ pro_agent_ids: [], con_agent_ids: [], rounds: 3, summary_agent_id: undefined })
+      setModeratorConfig({ moderator_id: undefined })
     }
   }, [group])
 
@@ -66,6 +78,16 @@ export default function GroupModal({ group, onClose, onSave }: Props) {
         rounds: 3,
         summary_agent_id: selectedAgentIds[0],
       }
+    })
+  }, [chatType, selectedAgentIds])
+
+  // Auto-init moderator config when switching to moderator
+  useEffect(() => {
+    if (chatType !== 'moderator') return
+    if (selectedAgentIds.length === 0) return
+    setModeratorConfig(prev => {
+      if (prev.moderator_id && selectedAgentIds.includes(prev.moderator_id)) return prev
+      return { moderator_id: selectedAgentIds[0] }
     })
   }, [chatType, selectedAgentIds])
 
@@ -224,6 +246,47 @@ export default function GroupModal({ group, onClose, onSave }: Props) {
                   </select>
                 </div>
               </div>
+            </div>
+          )}
+
+          {chatType === 'moderator' && (
+            <div className="space-y-3 border border-gray-200 rounded-lg p-3 bg-gray-50">
+              <div className="text-sm font-medium text-gray-900">主持人配置</div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">指定主持人</label>
+                {selectedAgents.length === 0 && (
+                  <div className="text-xs text-gray-400">请先选择下方的 Agent</div>
+                )}
+                {selectedAgents.length > 0 && (
+                  <select
+                    value={moderatorConfig.moderator_id ?? ''}
+                    onChange={e => setModeratorConfig({ moderator_id: e.target.value ? Number(e.target.value) : undefined })}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+                  >
+                    {selectedAgents.map(a => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              {selectedAgents.length > 0 && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">专家 Agent</label>
+                  <div className="space-y-1.5">
+                    {selectedAgents.filter(a => a.id !== moderatorConfig.moderator_id).map(a => (
+                      <div key={a.id} className="flex items-center justify-between bg-white px-2 py-1.5 rounded border border-gray-200">
+                        <span className="text-sm text-gray-700">{a.name}</span>
+                        <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-200">专家</span>
+                      </div>
+                    ))}
+                    {selectedAgents.filter(a => a.id !== moderatorConfig.moderator_id).length === 0 && (
+                      <div className="text-xs text-gray-400">请至少选择一个非主持人的 Agent 作为专家</div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

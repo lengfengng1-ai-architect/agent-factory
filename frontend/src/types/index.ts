@@ -8,6 +8,7 @@ export interface Agent {
   model: string;
   api_url: string;
   api_key: string;
+  provider: string;
   created_at: string;
 }
 

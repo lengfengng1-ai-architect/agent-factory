@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, RefreshCw } from 'lucide-react'
 import { providerApi } from '../api/client'
@@ -22,8 +22,6 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
   const [apiKey, setApiKey] = useState('')
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null)
 
-  const modelModified = useRef(false)
-  const apiUrlModified = useRef(false)
 
   const { data: providers } = useQuery({
     queryKey: ['providers'],
@@ -52,8 +50,6 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
       setModel(agent.model || '')
       setApiUrl(agent.api_url || '')
       setApiKey(agent.api_key || '')
-      modelModified.current = true
-      apiUrlModified.current = true
 
       if (providers) {
         const matched = providers.find(p => p.key === agent.provider) || null
@@ -68,8 +64,6 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
       setApiUrl('')
       setApiKey('')
       setSelectedProvider(null)
-      modelModified.current = false
-      apiUrlModified.current = false
     }
   }, [agent, providers])
 
@@ -77,23 +71,18 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
     const provider = providers?.find(p => p.id === providerId) || null
     setSelectedProvider(provider)
     if (provider) {
-      if (!modelModified.current) {
-        setModel('')
-      }
-      if (!apiUrlModified.current) {
-        setApiUrl(provider.base_url || '')
-      }
+      setApiUrl(provider.base_url || '')
+      setApiKey('')
+      setModel('')
     }
   }
 
   const handleModelChange = (value: string) => {
     setModel(value)
-    modelModified.current = true
   }
 
   const handleApiUrlChange = (value: string) => {
     setApiUrl(value)
-    apiUrlModified.current = true
   }
 
   const handleDiscover = () => {
@@ -101,6 +90,16 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
       discoverMutation.mutate({ id: selectedProvider.id, apiKey })
     }
   }
+
+  // Auto-fill api_url when editing agent and providers loaded
+  useEffect(() => {
+    if (agent && providers && selectedProvider) {
+      // Only auto-fill if current values are empty (newly switched provider)
+      if (!apiUrl) {
+        setApiUrl(selectedProvider.base_url || '')
+      }
+    }
+  }, [agent, providers, selectedProvider])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -155,6 +154,23 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
             <textarea className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" rows={3} value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} />
           </div>
           <div>
+            <label className="block text-sm font-medium text-gray-700">API URL</label>
+            <input className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" value={apiUrl} onChange={e => handleApiUrlChange(e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">API Key</label>
+            <input
+              type="password"
+              className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              value={apiKey}
+              onChange={e => setApiKey(e.target.value)}
+              placeholder={selectedProvider?.key === 'ollama' ? 'optional for ollama' : undefined}
+            />
+            {selectedProvider?.api_key_env && (
+              <p className="mt-1 text-xs text-gray-500">也可通过环境变量 {selectedProvider.api_key_env} 设置</p>
+            )}
+          </div>
+          <div>
             <div className="flex items-center justify-between">
               <label className="block text-sm font-medium text-gray-700">Model</label>
               {selectedProvider && (
@@ -185,23 +201,6 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
               </div>
             ) : (
               <input className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" value={model} onChange={e => handleModelChange(e.target.value)} />
-            )}
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">API URL</label>
-            <input className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" value={apiUrl} onChange={e => handleApiUrlChange(e.target.value)} />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">API Key</label>
-            <input
-              type="password"
-              className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-              value={apiKey}
-              onChange={e => setApiKey(e.target.value)}
-              placeholder={selectedProvider?.key === 'ollama' ? 'optional for ollama' : undefined}
-            />
-            {selectedProvider?.api_key_env && (
-              <p className="mt-1 text-xs text-gray-500">也可通过环境变量 {selectedProvider.api_key_env} 设置</p>
             )}
           </div>
           <div>

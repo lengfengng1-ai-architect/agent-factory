@@ -43,4 +43,5 @@ export const providerApi = {
     api.post(`/providers/${id}/discover`, { api_key: apiKey || '' }).then(r => r.data),
   getModels: (id: number) =>
     api.get<ProviderModel[]>(`/providers/${id}/models`).then(r => r.data),
+  reset: (id: number) => api.post<Provider>(`/providers/${id}/reset`).then(r => r.data),
 };

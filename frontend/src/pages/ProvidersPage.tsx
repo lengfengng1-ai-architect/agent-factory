@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Plug, Pencil, Trash2, ExternalLink } from 'lucide-react'
+import { Plus, Plug, Pencil, Trash2, RotateCcw, ExternalLink } from 'lucide-react'
 import { providerApi } from '../api/client'
 import type { Provider } from '../types'
 import ProviderModal from '../components/ProviderModal'
@@ -15,6 +15,7 @@ export default function ProvidersPage() {
   const create = useMutation({ mutationFn: providerApi.create, onSuccess: () => qc.invalidateQueries({ queryKey: ['providers'] }) })
   const update = useMutation({ mutationFn: ({ id, data }: { id: number; data: Partial<Provider> }) => providerApi.update(id, data), onSuccess: () => qc.invalidateQueries({ queryKey: ['providers'] }) })
   const remove = useMutation({ mutationFn: providerApi.delete, onSuccess: () => qc.invalidateQueries({ queryKey: ['providers'] }) })
+  const reset = useMutation({ mutationFn: providerApi.reset, onSuccess: () => qc.invalidateQueries({ queryKey: ['providers'] }) })
 
   const handleSave = (data: { name: string; key: string; base_url: string; api_key_env: string; description: string; doc_url: string; is_enabled: boolean; config: Record<string, unknown> }) => {
     if (editing) update.mutate({ id: editing.id, data })
@@ -53,7 +54,16 @@ export default function ProvidersPage() {
                 </div>
               </div>
               <div className="flex gap-1">
-                {!p.is_builtin && (
+                {p.is_builtin ? (
+                  <>
+                    <button onClick={() => { setEditing(p); setModalOpen(true) }} className="p-1.5 hover:bg-gray-100 rounded-lg" title="Edit">
+                      <Pencil size={16} />
+                    </button>
+                    <button onClick={() => reset.mutate(p.id)} className="p-1.5 hover:bg-amber-50 text-amber-600 rounded-lg" title="Reset to defaults">
+                      <RotateCcw size={16} />
+                    </button>
+                  </>
+                ) : (
                   <>
                     <button onClick={() => { setEditing(p); setModalOpen(true) }} className="p-1.5 hover:bg-gray-100 rounded-lg" title="Edit">
                       <Pencil size={16} />

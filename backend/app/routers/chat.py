@@ -4,8 +4,9 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app import models
 from app.redis_client import get_chat_history, append_chat_message, append_group_chat_message
+from app.tools import get_agent_tools
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
 import json
 
 router = APIRouter()
@@ -86,13 +87,59 @@ def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(get_db))
     )
 
     async def stream():
+        tools = get_agent_tools(agent)
+
+        if tools:
+            llm_with_tools = llm.bind_tools(tools)
+            # First call: detect tool calls
+            response = await llm_with_tools.ainvoke(messages)
+
+            if response.tool_calls:
+                messages.append(response)
+                for tool_call in response.tool_calls:
+                    tool = next((t for t in tools if t.name == tool_call["name"]), None)
+                    if tool:
+                        try:
+                            result = await tool.ainvoke(tool_call["args"])
+                        except Exception as e:
+                            result = f"Error executing tool: {e}"
+                    else:
+                        result = f"Tool '{tool_call['name']}' not found"
+                    messages.append(ToolMessage(content=str(result), tool_call_id=tool_call["id"]))
+
+                # Second call: stream final answer after tool execution
+                full_response = ""
+                async for chunk in llm_with_tools.astream(messages):
+                    text = chunk.content
+                    if text:
+                        full_response += text
+                        yield f"data: {json.dumps({'content': text}, ensure_ascii=False)}\n\n"
+                append_chat_message(agent_id, "assistant", full_response)
+                if group_id:
+                    append_group_chat_message(group_id, "assistant", agent_id, agent.name, full_response)
+                yield "data: [DONE]\n\n"
+                return
+
+            # No tool calls but tools enabled: stream normally
+            full_response = ""
+            async for chunk in llm_with_tools.astream(messages):
+                text = chunk.content
+                if text:
+                    full_response += text
+                    yield f"data: {json.dumps({'content': text}, ensure_ascii=False)}\n\n"
+            append_chat_message(agent_id, "assistant", full_response)
+            if group_id:
+                append_group_chat_message(group_id, "assistant", agent_id, agent.name, full_response)
+            yield "data: [DONE]\n\n"
+            return
+
+        # No tools: existing logic
         full_response = ""
         async for chunk in llm.astream(messages):
             text = chunk.content
             if text:
                 full_response += text
                 yield f"data: {json.dumps({'content': text}, ensure_ascii=False)}\n\n"
-        # Save assistant message after streaming completes
         append_chat_message(agent_id, "assistant", full_response)
         if group_id:
             append_group_chat_message(group_id, "assistant", agent_id, agent.name, full_response)

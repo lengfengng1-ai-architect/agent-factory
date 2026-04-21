@@ -1,15 +1,22 @@
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app import models
-from app.redis_client import get_chat_history, append_chat_message, append_group_chat_message
+from app.redis_client import (
+    get_chat_history, append_chat_message, append_group_chat_message,
+    set_chat_partial, get_chat_partial, delete_chat_partial,
+)
 from app.tools import get_agent_tools
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
 import json
 
 router = APIRouter()
+
+# Track background generation tasks per agent
+_generating_tasks: dict[int, asyncio.Task] = {}
 
 
 @router.get("/{agent_id}/chat/history")
@@ -18,7 +25,7 @@ def get_agent_chat_history(agent_id: int):
 
 
 @router.post("/{agent_id}/chat")
-def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(get_db)):
+async def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(get_db)):
     agent = db.query(models.Agent).filter(models.Agent.id == agent_id).first()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -86,63 +93,101 @@ def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(get_db))
         streaming=True,
     )
 
-    async def stream():
-        tools = get_agent_tools(agent)
+    async def _background_generate(
+        agent_id: int,
+        msgs: list,
+        llm_instance: ChatOpenAI,
+        group_id: int | None,
+        agent_name: str,
+    ):
+        """Run LLM generation in background, saving partial results to Redis."""
+        full_response = ""
+        try:
+            tools = get_agent_tools(agent)
 
-        if tools:
-            llm_with_tools = llm.bind_tools(tools)
-            # First call: detect tool calls
-            response = await llm_with_tools.ainvoke(messages)
+            if tools:
+                llm_with_tools = llm_instance.bind_tools(tools)
+                response = await llm_with_tools.ainvoke(msgs)
 
-            if response.tool_calls:
-                messages.append(response)
-                for tool_call in response.tool_calls:
-                    tool = next((t for t in tools if t.name == tool_call["name"]), None)
-                    if tool:
-                        try:
-                            result = await tool.ainvoke(tool_call["args"])
-                        except Exception as e:
-                            result = f"Error executing tool: {e}"
-                    else:
-                        result = f"Tool '{tool_call['name']}' not found"
-                    messages.append(ToolMessage(content=str(result), tool_call_id=tool_call["id"]))
+                if response.tool_calls:
+                    msgs.append(response)
+                    for tool_call in response.tool_calls:
+                        tool = next((t for t in tools if t.name == tool_call["name"]), None)
+                        if tool:
+                            try:
+                                result = await tool.ainvoke(tool_call["args"])
+                            except Exception as e:
+                                result = f"Error executing tool: {e}"
+                        else:
+                            result = f"Tool '{tool_call['name']}' not found"
+                        msgs.append(ToolMessage(content=str(result), tool_call_id=tool_call["id"]))
 
-                # Second call: stream final answer after tool execution
-                full_response = ""
-                async for chunk in llm_with_tools.astream(messages):
+                    async for chunk in llm_with_tools.astream(msgs):
+                        text = chunk.content
+                        if text:
+                            full_response += text
+                            set_chat_partial(agent_id, full_response)
+                else:
+                    async for chunk in llm_with_tools.astream(msgs):
+                        text = chunk.content
+                        if text:
+                            full_response += text
+                            set_chat_partial(agent_id, full_response)
+            else:
+                async for chunk in llm_instance.astream(msgs):
                     text = chunk.content
                     if text:
                         full_response += text
-                        yield f"data: {json.dumps({'content': text}, ensure_ascii=False)}\n\n"
-                append_chat_message(agent_id, "assistant", full_response)
-                if group_id:
-                    append_group_chat_message(group_id, "assistant", agent_id, agent.name, full_response)
-                yield "data: [DONE]\n\n"
-                return
+                        set_chat_partial(agent_id, full_response)
 
-            # No tool calls but tools enabled: stream normally
-            full_response = ""
-            async for chunk in llm_with_tools.astream(messages):
-                text = chunk.content
-                if text:
-                    full_response += text
-                    yield f"data: {json.dumps({'content': text}, ensure_ascii=False)}\n\n"
+            # Save final complete response
             append_chat_message(agent_id, "assistant", full_response)
             if group_id:
-                append_group_chat_message(group_id, "assistant", agent_id, agent.name, full_response)
-            yield "data: [DONE]\n\n"
-            return
+                append_group_chat_message(group_id, "assistant", agent_id, agent_name, full_response)
+        except asyncio.CancelledError:
+            # Generation was cancelled (e.g. user sent a new message)
+            raise
+        finally:
+            delete_chat_partial(agent_id)
+            _generating_tasks.pop(agent_id, None)
 
-        # No tools: existing logic
-        full_response = ""
-        async for chunk in llm.astream(messages):
-            text = chunk.content
-            if text:
-                full_response += text
-                yield f"data: {json.dumps({'content': text}, ensure_ascii=False)}\n\n"
-        append_chat_message(agent_id, "assistant", full_response)
-        if group_id:
-            append_group_chat_message(group_id, "assistant", agent_id, agent.name, full_response)
-        yield "data: [DONE]\n\n"
+    # Cancel any existing generation for this agent
+    existing_task = _generating_tasks.get(agent_id)
+    if existing_task and not existing_task.done():
+        existing_task.cancel()
+        try:
+            await existing_task
+        except asyncio.CancelledError:
+            pass
+        delete_chat_partial(agent_id)
+
+    # Start new background generation task
+    task = asyncio.create_task(
+        _background_generate(agent_id, messages, llm, group_id, agent.name)
+    )
+    _generating_tasks[agent_id] = task
+
+    async def stream():
+        """Stream generation progress from background task."""
+        last_len = 0
+
+        while True:
+            partial = get_chat_partial(agent_id)
+            if partial and len(partial) > last_len:
+                new_text = partial[last_len:]
+                last_len = len(partial)
+                yield f"data: {json.dumps({'content': new_text}, ensure_ascii=False)}\n\n"
+
+            current_task = _generating_tasks.get(agent_id)
+            if current_task and current_task.done():
+                # Send any remaining content
+                partial = get_chat_partial(agent_id)
+                if partial and len(partial) > last_len:
+                    new_text = partial[last_len:]
+                    yield f"data: {json.dumps({'content': new_text}, ensure_ascii=False)}\n\n"
+                yield "data: [DONE]\n\n"
+                break
+
+            await asyncio.sleep(0.2)
 
     return StreamingResponse(stream(), media_type="text/event-stream")

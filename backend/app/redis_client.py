@@ -33,6 +33,24 @@ def clear_chat_history(agent_id: int):
     r.delete(key)
 
 
+def set_chat_partial(agent_id: int, content: str, ttl: int = 300):
+    """Store partial generation content for an agent."""
+    key = f"chat_partial:{agent_id}"
+    r.set(key, content, ex=ttl)
+
+
+def get_chat_partial(agent_id: int) -> str:
+    """Get partial generation content for an agent."""
+    key = f"chat_partial:{agent_id}"
+    return r.get(key) or ""
+
+
+def delete_chat_partial(agent_id: int):
+    """Delete partial generation content for an agent."""
+    key = f"chat_partial:{agent_id}"
+    r.delete(key)
+
+
 MAX_GROUP_HISTORY = 100
 
 

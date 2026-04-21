@@ -63,7 +63,10 @@ class TaskBase(BaseModel):
     description: Optional[str] = ""
     status: Optional[str] = "pending"
     assignee_type: Optional[str] = "agent"
-    assignee_id: int
+    assignee_id: Optional[int] = None
+    result: Optional[str] = ""
+    auto_execute: Optional[bool] = False
+    progress: Optional[int] = 0
 
 
 class TaskCreate(TaskBase):
@@ -73,6 +76,11 @@ class TaskCreate(TaskBase):
 class TaskUpdate(TaskBase):
     title: Optional[str] = None
     status: Optional[str] = None
+    assignee_type: Optional[str] = None
+    assignee_id: Optional[int] = None
+    result: Optional[str] = None
+    auto_execute: Optional[bool] = None
+    progress: Optional[int] = None
 
 
 class TaskResponse(TaskBase):

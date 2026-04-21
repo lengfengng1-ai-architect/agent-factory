@@ -39,7 +39,10 @@ class Task(Base):
     description = Column(Text, default="")
     status = Column(String, default="pending")
     assignee_type = Column(String, default="agent")
-    assignee_id = Column(Integer, nullable=False)
+    assignee_id = Column(Integer, nullable=True)
+    result = Column(Text, default="")
+    auto_execute = Column(Boolean, default=False)
+    progress = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

@@ -19,6 +19,20 @@ with engine.connect() as conn:
 workspace_dir = os.path.join(os.path.dirname(__file__), "workspace")
 os.makedirs(workspace_dir, exist_ok=True)
 
+# SQLite migration for tasks table: add result, auto_execute, progress columns
+with engine.connect() as conn:
+    for col in ["result", "auto_execute", "progress"]:
+        try:
+            conn.execute(text(f"SELECT {col} FROM tasks LIMIT 1"))
+        except Exception:
+            if col == "result":
+                conn.execute(text("ALTER TABLE tasks ADD COLUMN result TEXT DEFAULT ''"))
+            elif col == "auto_execute":
+                conn.execute(text("ALTER TABLE tasks ADD COLUMN auto_execute BOOLEAN DEFAULT 0"))
+            elif col == "progress":
+                conn.execute(text("ALTER TABLE tasks ADD COLUMN progress INTEGER DEFAULT 0"))
+            conn.commit()
+
 app = FastAPI(title="Agent Factory API", version="1.0.0")
 
 app.add_middleware(

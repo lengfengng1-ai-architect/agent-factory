@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
@@ -13,6 +14,10 @@ with engine.connect() as conn:
     except Exception:
         conn.execute(text("ALTER TABLE groups ADD COLUMN config TEXT DEFAULT '{}'"))
         conn.commit()
+
+# Ensure workspace directory exists
+workspace_dir = os.path.join(os.path.dirname(__file__), "workspace")
+os.makedirs(workspace_dir, exist_ok=True)
 
 app = FastAPI(title="Agent Factory API", version="1.0.0")
 

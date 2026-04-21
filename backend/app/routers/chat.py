@@ -3,11 +3,17 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app import models
+from app.redis_client import get_chat_history, append_chat_message
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 import json
 
 router = APIRouter()
+
+
+@router.get("/{agent_id}/chat/history")
+def get_agent_chat_history(agent_id: int):
+    return {"messages": get_chat_history(agent_id)}
 
 
 @router.post("/{agent_id}/chat")
@@ -49,6 +55,19 @@ def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(get_db))
         elif not api_key:
             raise HTTPException(status_code=400, detail="Agent api_key not configured")
 
+    # Save user message
+    append_chat_message(agent_id, "user", user_message)
+
+    # Build messages with history
+    history = get_chat_history(agent_id)
+    messages = [SystemMessage(content=system_prompt)]
+    for msg in history[:-1]:  # Exclude the just-added user message
+        if msg["role"] == "user":
+            messages.append(HumanMessage(content=msg["content"]))
+        elif msg["role"] == "assistant":
+            messages.append(AIMessage(content=msg["content"]))
+    messages.append(HumanMessage(content=user_message))
+
     llm = ChatOpenAI(
         model=model,
         api_key=api_key,
@@ -56,13 +75,15 @@ def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(get_db))
         streaming=True,
     )
 
-    messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_message)]
-
     async def stream():
+        full_response = ""
         async for chunk in llm.astream(messages):
             text = chunk.content
             if text:
+                full_response += text
                 yield f"data: {json.dumps({'content': text}, ensure_ascii=False)}\n\n"
+        # Save assistant message after streaming completes
+        append_chat_message(agent_id, "assistant", full_response)
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")

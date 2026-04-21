@@ -30,7 +30,10 @@ export interface Task {
   description: string;
   status: TaskStatus;
   assignee_type: 'agent' | 'group';
-  assignee_id: number;
+  assignee_id: number | null;
+  result?: string;
+  auto_execute?: boolean;
+  progress?: number;
   created_at: string;
   updated_at?: string;
 }

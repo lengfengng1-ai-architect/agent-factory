@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.database import engine, Base
-from app.routers import agents, groups, tasks, chat
+from app.database import engine, Base, get_db
+from app.routers import agents, groups, tasks, chat, models, providers
 
 Base.metadata.create_all(bind=engine)
 
@@ -19,8 +19,19 @@ app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
 app.include_router(groups.router, prefix="/api/groups", tags=["groups"])
 app.include_router(tasks.router, prefix="/api/tasks", tags=["tasks"])
 app.include_router(chat.router, prefix="/api/agents", tags=["chat"])
+app.include_router(models.router, prefix="/api", tags=["models"])
+app.include_router(providers.router, prefix="/api/providers", tags=["providers"])
 
 
 @app.get("/api/health")
 def health_check():
     return {"status": "ok"}
+
+
+@app.on_event("startup")
+def on_startup():
+    db = next(get_db())
+    try:
+        providers.init_builtin_providers(db)
+    finally:
+        db.close()

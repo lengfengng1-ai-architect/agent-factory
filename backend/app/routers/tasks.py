@@ -113,3 +113,65 @@ def get_task_status(task_id: int, db: Session = Depends(get_db)):
         "progress": progress,
         "result": task.result,
     }
+
+
+# ── Workflow Steps ──
+
+@router.get("/{task_id}/steps", response_model=List[schemas.WorkflowStepResponse])
+def list_task_steps(task_id: int, db: Session = Depends(get_db)):
+    return db.query(models.WorkflowStep).filter(models.WorkflowStep.task_id == task_id).order_by(models.WorkflowStep.order_index).all()
+
+
+@router.post("/{task_id}/steps", response_model=schemas.WorkflowStepResponse)
+def create_task_step(task_id: int, step: schemas.WorkflowStepCreate, db: Session = Depends(get_db)):
+    db_step = models.WorkflowStep(**step.model_dump())
+    db.add(db_step)
+    db.commit()
+    db.refresh(db_step)
+    return db_step
+
+
+@router.put("/{task_id}/steps/{step_id}", response_model=schemas.WorkflowStepResponse)
+def update_task_step(task_id: int, step_id: int, step: schemas.WorkflowStepUpdate, db: Session = Depends(get_db)):
+    db_step = db.query(models.WorkflowStep).filter(
+        models.WorkflowStep.id == step_id,
+        models.WorkflowStep.task_id == task_id
+    ).first()
+    if not db_step:
+        raise HTTPException(status_code=404, detail="Step not found")
+    for key, value in step.model_dump(exclude_unset=True).items():
+        setattr(db_step, key, value)
+    db.commit()
+    db.refresh(db_step)
+    return db_step
+
+
+@router.delete("/{task_id}/steps/{step_id}")
+def delete_task_step(task_id: int, step_id: int, db: Session = Depends(get_db)):
+    db_step = db.query(models.WorkflowStep).filter(
+        models.WorkflowStep.id == step_id,
+        models.WorkflowStep.task_id == task_id
+    ).first()
+    if not db_step:
+        raise HTTPException(status_code=404, detail="Step not found")
+    db.delete(db_step)
+    db.commit()
+    return {"message": "Step deleted"}
+
+
+# ── Task Breakdown ──
+
+@router.post("/{task_id}/breakdown")
+def breakdown_task(task_id: int, db: Session = Depends(get_db)):
+    """Break down a task into workflow steps using LLM."""
+    task = db.query(models.Task).filter(models.Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    # TODO: Phase 2 中实现真正的 LLM 拆解
+    # 这里先返回占位，让 API 可用
+    return {
+        "task_id": task_id,
+        "message": "Breakdown will be implemented in Phase 2",
+        "placeholder_steps": []
+    }

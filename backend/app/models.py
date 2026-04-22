@@ -45,8 +45,31 @@ class Task(Base):
     auto_execute = Column(Boolean, default=False)
     progress = Column(Integer, default=0)
     file_root_dir = Column(String, default="")
+    workflow_plan = Column(JSON, default=None)
+    workflow_status = Column(String, default="")
+    workflow_config = Column(JSON, default=dict)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class WorkflowStep(Base):
+    __tablename__ = "workflow_steps"
+
+    id = Column(Integer, primary_key=True)
+    task_id = Column(Integer, index=True, nullable=False)
+    name = Column(String, nullable=False)
+    description = Column(Text, default="")
+    status = Column(String, default="pending")
+    order_index = Column(Integer, default=0)
+    depends_on = Column(JSON, default=list)
+    agent_id = Column(Integer, nullable=True)
+    checkpoint = Column(Boolean, default=False)
+    result = Column(Text, default="")
+    artifact_path = Column(String, default="")
+    started_at = Column(DateTime(timezone=True))
+    completed_at = Column(DateTime(timezone=True))
+    retry_count = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class Provider(Base):

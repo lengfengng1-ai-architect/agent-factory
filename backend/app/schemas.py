@@ -69,6 +69,9 @@ class TaskBase(BaseModel):
     auto_execute: Optional[bool] = False
     progress: Optional[int] = 0
     file_root_dir: Optional[str] = ""
+    workflow_plan: Optional[dict] = None
+    workflow_status: Optional[str] = ""
+    workflow_config: Optional[dict] = {}
 
 
 class TaskCreate(TaskBase):
@@ -89,6 +92,47 @@ class TaskResponse(TaskBase):
     id: int
     created_at: datetime
     updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class WorkflowStepBase(BaseModel):
+    task_id: int
+    name: str
+    description: Optional[str] = ""
+    status: Optional[str] = "pending"
+    order_index: Optional[int] = 0
+    depends_on: Optional[List[int]] = []
+    agent_id: Optional[int] = None
+    checkpoint: Optional[bool] = False
+    result: Optional[str] = ""
+    artifact_path: Optional[str] = ""
+    retry_count: Optional[int] = 0
+
+
+class WorkflowStepCreate(WorkflowStepBase):
+    pass
+
+
+class WorkflowStepUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+    order_index: Optional[int] = None
+    depends_on: Optional[List[int]] = None
+    agent_id: Optional[int] = None
+    checkpoint: Optional[bool] = None
+    result: Optional[str] = None
+    artifact_path: Optional[str] = None
+    retry_count: Optional[int] = None
+
+
+class WorkflowStepResponse(WorkflowStepBase):
+    id: int
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    created_at: datetime
 
     class Config:
         from_attributes = True

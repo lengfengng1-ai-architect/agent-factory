@@ -103,11 +103,18 @@ def on_startup():
         for table_name, column_name, column_def in [
             ("tasks", "file_root_dir", "VARCHAR"),
             ("groups", "file_root_dir", "VARCHAR"),
+            ("tasks", "workflow_plan", "JSON"),
+            ("tasks", "workflow_status", "VARCHAR"),
+            ("tasks", "workflow_config", "JSON"),
         ]:
             columns = [c["name"] for c in inspector.get_columns(table_name)]
             if column_name not in columns:
                 db.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def} DEFAULT ''"))
                 db.commit()
+        
+        # Ensure workflow_steps table exists
+        from app import models
+        Base.metadata.create_all(bind=db.bind, tables=[models.WorkflowStep.__table__])
         
         # Start Feishu WebSocket clients for all enabled agents
         from app.feishu_ws import start_feishu_ws

@@ -53,7 +53,7 @@ export default function App() {
         </nav>
       </aside>
 
-      <main className="flex-1 p-8 overflow-auto">
+      <main className="flex-1 p-8 overflow-hidden">
         {tab === 'agents' && <AgentsPage />}
         {tab === 'providers' && <ProvidersPage />}
         {tab === 'groups' && <GroupsPage />}

@@ -9,7 +9,7 @@ interface Props {
 
 export default function TaskCard({ task, onEdit }: Props) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({ id: `task-${task.id}`, data: task })
-  const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined
+  const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 9999 } : undefined
 
   const statusColor = {
     pending: 'border-gray-200',
@@ -86,11 +86,6 @@ export default function TaskCard({ task, onEdit }: Props) {
               ) : (
                 <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-gray-100 text-gray-600">
                   MANUAL
-                </span>
-              )}
-              {task.auto_execute && task.assignee_id && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-orange-50 text-orange-700">
-                  {task.status === 'pending' ? '排队中' : 'AUTO'}
                 </span>
               )}
               {task.status === 'in_progress' && (

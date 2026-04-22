@@ -186,7 +186,9 @@ async def breakdown_task(task_id: int, payload: dict = None, db: Session = Depen
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    require_first_checkpoint = True
+    cfg = task.workflow_config or {}
+    require_first_checkpoint = not cfg.get("disable_checkpoints", True)
+    # Keep payload override for backward compatibility with old frontends
     if payload and "require_first_checkpoint" in payload:
         require_first_checkpoint = bool(payload["require_first_checkpoint"])
     

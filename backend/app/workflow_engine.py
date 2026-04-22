@@ -20,8 +20,11 @@ DEFAULT_RETRY_COUNT = 3
 
 # ── Breakdown ──
 
-async def breakdown_task(task: models.Task, db: Session, require_first_checkpoint: bool = True):
+async def breakdown_task(task: models.Task, db: Session, require_first_checkpoint: bool = None):
     """Use LLM to break down a task into workflow steps."""
+    cfg = task.workflow_config or {}
+    if require_first_checkpoint is None:
+        require_first_checkpoint = not cfg.get("disable_checkpoints", True)
     agent = None
     if task.assignee_type == "agent" and task.assignee_id:
         agent = db.query(models.Agent).filter(models.Agent.id == task.assignee_id).first()
@@ -302,7 +305,7 @@ async def execute_workflow(task_id: int):
             # Re-read task config each iteration so runtime changes take effect
             db.refresh(task)
             cfg = task.workflow_config or {}
-            disable_checkpoints = cfg.get("disable_checkpoints", False)
+            disable_checkpoints = cfg.get("disable_checkpoints", True)
             max_retries = cfg.get("retry_count", DEFAULT_RETRY_COUNT)
             
             executable = _get_next_executable_steps(task_id, db)

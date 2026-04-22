@@ -21,6 +21,7 @@ interface Props {
     assignee_id: number | null;
     auto_execute: boolean;
     file_root_dir: string;
+    workflow_config?: Record<string, any>;
   }) => void
   onSwitchEdit?: () => void
 }
@@ -39,10 +40,9 @@ export default function TaskModal({ task, mode, onClose, onSave, onSwitchEdit }:
   const [status, setStatus] = useState<TaskStatus>('pending')
   const [assigneeType, setAssigneeType] = useState<'agent' | 'group'>('agent')
   const [assigneeId, setAssigneeId] = useState<number | null>(null)
-  const [autoExecute, setAutoExecute] = useState(false)
+  const [autoExecute, setAutoExecute] = useState(true)
   const [fileRootDir, setFileRootDir] = useState('')
-  const [requireFirstCheckpoint, setRequireFirstCheckpoint] = useState(true)
-
+  const [manualConfirm, setManualConfirm] = useState(false)
   // Artifacts viewer
   const [showArtifacts, setShowArtifacts] = useState(false)
 
@@ -58,7 +58,7 @@ export default function TaskModal({ task, mode, onClose, onSave, onSwitchEdit }:
   })
 
   const breakdown = useMutation({
-    mutationFn: () => taskApi.breakdown(task!.id, { require_first_checkpoint: requireFirstCheckpoint }),
+    mutationFn: () => taskApi.breakdown(task!.id, {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['task_workflow', task?.id] }),
   })
 
@@ -80,16 +80,16 @@ export default function TaskModal({ task, mode, onClose, onSave, onSwitchEdit }:
       setStatus(task.status)
       setAssigneeType(task.assignee_type)
       setAssigneeId(task.assignee_id)
-      setAutoExecute(task.auto_execute ?? false)
       setFileRootDir(task.file_root_dir || '')
+      setManualConfirm(task.workflow_config?.disable_checkpoints === false)
     } else {
       setTitle('')
       setDescription('')
       setStatus('pending')
       setAssigneeType('agent')
       setAssigneeId(null)
-      setAutoExecute(false)
       setFileRootDir('')
+      setManualConfirm(false)
     }
     setActiveTab(task?.workflow_plan ? 'workflow' : 'overview')
   }, [task])
@@ -104,8 +104,9 @@ export default function TaskModal({ task, mode, onClose, onSave, onSwitchEdit }:
       status,
       assignee_type: assigneeType,
       assignee_id: hasAssignee ? assigneeId : null,
-      auto_execute: hasAssignee ? autoExecute : false,
+      auto_execute: hasAssignee,
       file_root_dir: fileRootDir,
+      workflow_config: { disable_checkpoints: !manualConfirm },
     })
     onClose()
   }
@@ -115,28 +116,32 @@ export default function TaskModal({ task, mode, onClose, onSave, onSwitchEdit }:
 
   // Global checkpoint toggle handler
   const handleToggleCheckpoints = (checked: boolean) => {
-    if (!task) return
-    const cfg = (task as any).workflow_config || {}
-    updateTaskConfig.mutate({
-      id: task.id,
-      data: {
-        workflow_config: { ...cfg, disable_checkpoints: !checked },
-      } as any,
-    })
+    setManualConfirm(checked)
+    if (task) {
+      const cfg = (task as any).workflow_config || {}
+      updateTaskConfig.mutate({
+        id: task.id,
+        data: {
+          workflow_config: { ...cfg, disable_checkpoints: !checked },
+        } as any,
+      })
+    }
   }
 
-  const checkpointsEnabled = !(task as any)?.workflow_config?.disable_checkpoints
+  const checkpointsEnabled = manualConfirm
 
   // Tab labels based on workflow presence
-  const tabConfig: { id: Tab; label: string }[] = hasWorkflow
-    ? [
-        { id: 'workflow', label: '工作流' },
-        { id: 'overview', label: '概览' },
-      ]
-    : [
-        { id: 'overview', label: '概览' },
-        { id: 'workflow', label: '工作流' },
-      ]
+  const tabConfig: { id: Tab; label: string }[] = isCreate
+    ? [{ id: 'overview', label: '概览' }]
+    : hasWorkflow
+      ? [
+          { id: 'workflow', label: '工作流' },
+          { id: 'overview', label: '概览' },
+        ]
+      : [
+          { id: 'overview', label: '概览' },
+          { id: 'workflow', label: '工作流' },
+        ]
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={onClose}>
@@ -204,7 +209,6 @@ export default function TaskModal({ task, mode, onClose, onSave, onSwitchEdit }:
                   onChange={e => {
                     setAssigneeType(e.target.value as 'agent' | 'group')
                     setAssigneeId(null)
-                    setAutoExecute(false)
                   }}
                   disabled={isView}
                 >
@@ -220,7 +224,6 @@ export default function TaskModal({ task, mode, onClose, onSave, onSwitchEdit }:
                   onChange={e => {
                     const val = e.target.value ? Number(e.target.value) : null
                     setAssigneeId(val)
-                    if (!val) setAutoExecute(false)
                   }}
                   disabled={isView}
                 >
@@ -232,19 +235,6 @@ export default function TaskModal({ task, mode, onClose, onSave, onSwitchEdit }:
               </div>
             </div>
 
-            {hasAssignee && (
-              <label className={`flex items-center gap-2 ${isView ? 'cursor-default' : 'cursor-pointer'}`}>
-                <input
-                  type="checkbox"
-                  checked={autoExecute}
-                  onChange={e => setAutoExecute(e.target.checked)}
-                  disabled={isView}
-                  className="rounded border-gray-300"
-                />
-                <span className="text-sm text-gray-700">拖入 In Progress 后自动执行</span>
-              </label>
-            )}
-
             <div>
               <label className="block text-sm font-medium text-gray-700">文件访问根目录</label>
               <input
@@ -255,6 +245,23 @@ export default function TaskModal({ task, mode, onClose, onSave, onSwitchEdit }:
                 disabled={isView}
               />
               <p className="text-xs text-gray-400 mt-1">Agent 文件操作将被限制在此目录内</p>
+            </div>
+
+            {/* Checkpoint toggle */}
+            <div className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+              <label className={`flex items-center gap-2 text-sm ${isView ? 'cursor-default' : 'cursor-pointer'}`}>
+                <input
+                  type="checkbox"
+                  checked={checkpointsEnabled}
+                  onChange={e => handleToggleCheckpoints(e.target.checked)}
+                  disabled={isView}
+                  className="rounded border-gray-300"
+                />
+                <span className="text-gray-700">启用人工确认</span>
+              </label>
+              <span className="text-[10px] text-gray-400">
+                {checkpointsEnabled ? '执行到 checkpoint 会暂停等待确认' : '所有步骤自动连续执行'}
+              </span>
             </div>
 
             {/* Result display */}
@@ -314,15 +321,6 @@ export default function TaskModal({ task, mode, onClose, onSave, onSwitchEdit }:
             {task && !hasWorkflow && !isView && (
               <div className="text-center py-8 space-y-3">
                 <p className="text-sm text-gray-500">当前任务尚未拆解为工作流</p>
-                <label className="flex items-center justify-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={requireFirstCheckpoint}
-                    onChange={e => setRequireFirstCheckpoint(e.target.checked)}
-                    className="rounded border-gray-300"
-                  />
-                  <span className="text-sm text-gray-700">第一步需要人工确认</span>
-                </label>
                 <button
                   onClick={() => breakdown.mutate()}
                   disabled={breakdown.isPending}
@@ -337,23 +335,6 @@ export default function TaskModal({ task, mode, onClose, onSave, onSwitchEdit }:
             )}
             {task && hasWorkflow && workflowData && (
               <>
-                {/* Global checkpoint config */}
-                <div className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
-                  <label className={`flex items-center gap-2 text-sm ${isView ? 'cursor-default' : 'cursor-pointer'}`}>
-                    <input
-                      type="checkbox"
-                      checked={checkpointsEnabled}
-                      onChange={e => handleToggleCheckpoints(e.target.checked)}
-                      disabled={isView}
-                      className="rounded border-gray-300"
-                    />
-                    <span className="text-gray-700">启用人工确认（checkpoint）</span>
-                  </label>
-                  <span className="text-[10px] text-gray-400">
-                    {checkpointsEnabled ? '执行到 checkpoint 会暂停等待确认' : '所有步骤自动连续执行'}
-                  </span>
-                </div>
-
                 <div className="flex items-center justify-between">
                   <div className="text-sm text-gray-700">
                     进度: <span className="font-medium">{workflowData.completed_steps}/{workflowData.total_steps}</span>

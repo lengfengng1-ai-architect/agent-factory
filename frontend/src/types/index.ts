@@ -40,6 +40,7 @@ export interface Task {
   updated_at?: string;
   workflow_plan?: string;
   workflow_status?: string;
+  workflow_config?: Record<string, any>;
   total_steps?: number;
   completed_steps?: number;
 }

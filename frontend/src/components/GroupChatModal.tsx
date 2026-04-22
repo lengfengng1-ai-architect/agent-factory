@@ -313,8 +313,8 @@ export default function GroupChatModal({ group, onClose }: Props) {
   const isParallel = chatType === 'parallel'
 
   return (
-    <div className={`fixed inset-0 bg-black/40 z-50 ${isMaximized ? '' : 'flex items-center justify-center'}`} onClick={onClose}>
-      <div className={`relative bg-white rounded-xl shadow-xl flex flex-col overflow-hidden transition-all duration-200 ${isMaximized ? 'absolute inset-4' : `${isParallel ? 'w-full max-w-4xl h-[85vh]' : 'w-full max-w-lg h-[80vh]'}`}`} onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" onClick={onClose}>
+      <div className={`bg-white rounded-xl shadow-xl flex flex-col overflow-hidden transition-all duration-200 ${isMaximized ? `w-full h-[calc(100vh-2rem)] ${isParallel ? 'max-w-6xl' : 'max-w-3xl'}` : `${isParallel ? 'w-full max-w-4xl h-[85vh]' : 'w-full max-w-lg h-[80vh]'}`}`} onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
           <div className="flex items-center gap-3">

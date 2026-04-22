@@ -33,6 +33,12 @@ export default function ChatModal({ agent, onClose }: Props) {
   const [selectedSummaries, setSelectedSummaries] = useState<number[]>([])
   const [activeTab, setActiveTab] = useState<'chat' | 'feishu'>('chat')
 
+  useEffect(() => {
+    if (activeTab === 'feishu' && !agent.config?.feishu?.enabled) {
+      setActiveTab('chat')
+    }
+  }, [activeTab, agent.config?.feishu?.enabled])
+
   const { data: historyData, isLoading: historyLoading } = useQuery({
     queryKey: ['chat_history', agent.id],
     queryFn: () => chatApi.history(agent.id),
@@ -236,16 +242,18 @@ export default function ChatModal({ agent, onClose }: Props) {
           >
             💬 Web 聊天
           </button>
-          <button
-            onClick={() => setActiveTab('feishu')}
-            className={`flex-1 py-2 text-xs font-medium transition-colors ${
-              activeTab === 'feishu'
-                ? 'text-indigo-700 border-b-2 border-indigo-600 bg-indigo-50'
-                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-            }`}
-          >
-            🤖 飞书历史
-          </button>
+          {agent.config?.feishu?.enabled && (
+            <button
+              onClick={() => setActiveTab('feishu')}
+              className={`flex-1 py-2 text-xs font-medium transition-colors ${
+                activeTab === 'feishu'
+                  ? 'text-indigo-700 border-b-2 border-indigo-600 bg-indigo-50'
+                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              🤖 飞书历史
+            </button>
+          )}
         </div>
 
         {/* Messages */}

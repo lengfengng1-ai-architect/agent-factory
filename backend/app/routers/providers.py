@@ -49,6 +49,16 @@ BUILTIN_PROVIDERS = [
         "config": {"discovery_method": "openai", "discovery_endpoint": "/models"},
     },
     {
+        "name": "火山方舟",
+        "key": "volces",
+        "base_url": "https://ark.cn-beijing.volces.com/api/coding/v3",
+        "api_key_env": "VOLCES_API_KEY",
+        "description": "字节跳动火山方舟大模型平台",
+        "doc_url": "https://www.volcengine.com/product/ark",
+        "is_builtin": True,
+        "config": {"discovery_method": "none"},
+    },
+    {
         "name": "阿里云百炼",
         "key": "alibaba",
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",

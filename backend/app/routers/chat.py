@@ -151,11 +151,15 @@ async def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(ge
         if group and group.file_root_dir:
             override_root = group.file_root_dir
 
+    extra_kwargs = {}
+    if "api.kimi.com" in (base_url or ""):
+        extra_kwargs["default_headers"] = {"User-Agent": "KimiCLI/1.30.0"}
     llm = ChatOpenAI(
         model=model,
         api_key=api_key,
         base_url=base_url,
         streaming=True,
+        **extra_kwargs,
     )
 
     async def _background_generate(

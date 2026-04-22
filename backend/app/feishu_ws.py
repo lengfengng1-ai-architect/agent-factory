@@ -43,12 +43,16 @@ async def _reply_to_feishu(agent_id: int, receive_id: str, text: str):
         if provider.key == "ollama":
             api_key = api_key or "ollama"
 
+        extra_kwargs = {}
+        if "api.kimi.com" in (base_url or ""):
+            extra_kwargs["default_headers"] = {"User-Agent": "KimiCLI/1.30.0"}
         llm = ChatOpenAI(
             model=model,
             api_key=api_key,
             base_url=base_url,
             streaming=False,
             max_tokens=2000,
+            **extra_kwargs,
         )
 
         # Save user message to Redis (isolated feishu history)

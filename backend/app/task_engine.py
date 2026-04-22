@@ -29,10 +29,13 @@ def _create_llm_for_agent(agent: models.Agent, provider: models.Provider):
     base_url = provider.base_url
     model = agent.model or ""
     api_key = agent.api_key or ""
+    extra_kwargs = {}
     if provider.key == "custom":
         base_url = agent.api_url or base_url
     if provider.key in ("kimi", "kimi-code"):
         base_url = _resolve_kimi_base_url(api_key, base_url)
+        if "api.kimi.com" in (base_url or ""):
+            extra_kwargs["default_headers"] = {"User-Agent": "KimiCLI/1.30.0"}
     if provider.key == "ollama":
         api_key = api_key or "ollama"
     return ChatOpenAI(
@@ -40,6 +43,7 @@ def _create_llm_for_agent(agent: models.Agent, provider: models.Provider):
         api_key=api_key,
         base_url=base_url,
         streaming=False,
+        **extra_kwargs,
     )
 
 

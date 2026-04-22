@@ -146,12 +146,16 @@ def _create_llm(agent: models.Agent, provider: models.Provider) -> ChatOpenAI:
     if provider.key == "ollama":
         api_key = api_key or "ollama"
 
+    extra_kwargs = {}
+    if "api.kimi.com" in (base_url or ""):
+        extra_kwargs["default_headers"] = {"User-Agent": "KimiCLI/1.30.0"}
     return ChatOpenAI(
         model=model,
         api_key=api_key,
         base_url=base_url,
         streaming=False,
         max_tokens=1500,
+        **extra_kwargs,
     )
 
 

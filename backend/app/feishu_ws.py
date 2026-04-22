@@ -37,6 +37,9 @@ async def _reply_to_feishu(agent_id: int, receive_id: str, text: str):
         api_key = agent.api_key or ""
         if provider.key == "custom":
             base_url = agent.api_url or base_url
+        if provider.key == "kimi":
+            from app.task_engine import _resolve_kimi_base_url
+            base_url = _resolve_kimi_base_url(api_key, base_url)
         if provider.key == "ollama":
             api_key = api_key or "ollama"
 

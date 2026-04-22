@@ -11,7 +11,7 @@ BUILTIN_PROVIDERS = [
     {
         "name": "Kimi",
         "key": "kimi",
-        "base_url": "https://api.kimi.com/coding/",
+        "base_url": "https://api.moonshot.ai/v1",
         "api_key_env": "KIMI_API_KEY",
         "description": "Moonshot AI Kimi coding models",
         "doc_url": "https://platform.kimi.ai",

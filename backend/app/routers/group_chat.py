@@ -26,6 +26,9 @@ def _create_llm(agent: models.Agent, provider: models.Provider):
 
     if provider.key == "custom":
         base_url = agent.api_url or base_url
+    if provider.key == "kimi":
+        from app.task_engine import _resolve_kimi_base_url
+        base_url = _resolve_kimi_base_url(api_key, base_url)
     if provider.key == "ollama":
         api_key = api_key or "ollama"
 

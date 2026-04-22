@@ -14,7 +14,7 @@ class Agent(Base):
     system_prompt = Column(Text, default="You are a helpful assistant.")
     provider = Column(String, default="kimi")
     model = Column(String, default="kimi-latest")
-    api_url = Column(String, default="https://api.kimi.com/coding/")
+    api_url = Column(String, default="https://api.moonshot.ai/v1")
     api_key = Column(String, default="")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

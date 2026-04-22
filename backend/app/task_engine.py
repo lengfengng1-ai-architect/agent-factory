@@ -11,6 +11,19 @@ MAX_CONCURRENT_TASKS = 3
 _semaphore: asyncio.Semaphore = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
 _executing_tasks: dict[int, asyncio.Task] = {}
 
+KIMI_CODE_BASE_URL = "https://api.kimi.com/coding/v1"
+
+
+def _resolve_kimi_base_url(api_key: str, default_url: str) -> str:
+    """Auto-detect Kimi Code (sk-kimi-) vs legacy Moonshot keys.
+
+    sk-kimi- prefixed keys route to api.kimi.com/coding/v1.
+    Legacy keys use the default moonshot URL.
+    """
+    if api_key.startswith("sk-kimi-"):
+        return KIMI_CODE_BASE_URL
+    return default_url
+
 
 def _create_llm_for_agent(agent: models.Agent, provider: models.Provider):
     base_url = provider.base_url
@@ -18,6 +31,8 @@ def _create_llm_for_agent(agent: models.Agent, provider: models.Provider):
     api_key = agent.api_key or ""
     if provider.key == "custom":
         base_url = agent.api_url or base_url
+    if provider.key == "kimi":
+        base_url = _resolve_kimi_base_url(api_key, base_url)
     if provider.key == "ollama":
         api_key = api_key or "ollama"
     return ChatOpenAI(

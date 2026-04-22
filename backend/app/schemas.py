@@ -11,7 +11,7 @@ class AgentBase(BaseModel):
     system_prompt: Optional[str] = "You are a helpful assistant."
     provider: Optional[str] = "kimi"
     model: Optional[str] = "kimi-latest"
-    api_url: Optional[str] = "https://api.kimi.com/coding/"
+    api_url: Optional[str] = "https://api.moonshot.ai/v1"
     api_key: Optional[str] = ""
 
 

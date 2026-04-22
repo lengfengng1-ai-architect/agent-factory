@@ -63,6 +63,9 @@ async def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(ge
             raise HTTPException(status_code=400, detail="Provider base_url not configured")
         if not model:
             raise HTTPException(status_code=400, detail="Agent model not configured")
+        if provider.key == "kimi":
+            from app.task_engine import _resolve_kimi_base_url
+            base_url = _resolve_kimi_base_url(api_key, base_url)
         if provider.key == "ollama":
             api_key = api_key or "ollama"
         elif not api_key:

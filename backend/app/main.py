@@ -2,7 +2,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
-from app.database import engine, Base, get_db
+from app.database import engine, Base, get_db, data_dir
 from app.routers import agents, groups, tasks, chat, models, providers, group_chat, files, summaries, feishu
 from app.task_engine import start_scheduler
 
@@ -44,7 +44,7 @@ with engine.connect() as conn:
         conn.commit()
 
 # Ensure workspace directory exists
-workspace_dir = os.path.join(os.path.dirname(__file__), "workspace")
+workspace_dir = os.path.join(data_dir, "workspace")
 os.makedirs(workspace_dir, exist_ok=True)
 
 # SQLite migration for tasks table: add result, auto_execute, progress columns
@@ -63,9 +63,14 @@ with engine.connect() as conn:
 
 app = FastAPI(title="Agent Factory API", version="1.0.0")
 
+if os.environ.get("ENV") == "production":
+    allow_origins = [""]
+else:
+    allow_origins = ["http://localhost:*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -118,13 +123,14 @@ def on_startup():
         Base.metadata.create_all(bind=db.bind, tables=[models.WorkflowStep.__table__])
         
         # Start Feishu WebSocket clients for all enabled agents
-        from app.feishu_ws import start_feishu_ws
-        from app import models as app_models
-        agents = db.query(app_models.Agent).all()
-        for agent in agents:
-            feishu_cfg = (agent.config or {}).get("feishu", {})
-            if feishu_cfg.get("enabled"):
-                start_feishu_ws(agent)
+        if os.environ.get("AGENT_FACTORY_NO_FEISHU") != "1":
+            from app.feishu_ws import start_feishu_ws
+            from app import models as app_models
+            agents = db.query(app_models.Agent).all()
+            for agent in agents:
+                feishu_cfg = (agent.config or {}).get("feishu", {})
+                if feishu_cfg.get("enabled"):
+                    start_feishu_ws(agent)
     finally:
         db.close()
     start_scheduler()

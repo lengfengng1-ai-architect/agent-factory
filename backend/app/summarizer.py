@@ -175,8 +175,17 @@ async def generate_summary(
     if cached:
         return cached
 
+    # Truncate content for summary generation to fit within LLM context window
+    # Most models support 128k context; we keep content under ~30k chars
+    # to leave room for the prompt template + system message + output
+    MAX_CHARS_FOR_SUMMARY = 30000
+    summary_content = content
+    if len(content) > MAX_CHARS_FOR_SUMMARY:
+        from app.file_utils import truncate_content
+        summary_content = truncate_content(content, MAX_CHARS_FOR_SUMMARY, filename)
+
     # Build summary prompt
-    prompt = format_summary_prompt(content, filename)
+    prompt = format_summary_prompt(summary_content, filename)
 
     try:
         llm = _create_llm(agent, provider)

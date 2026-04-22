@@ -1,9 +1,13 @@
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
 from app import models, schemas
-from app.task_engine import submit_task, get_task_progress, get_max_concurrent_tasks, set_max_concurrent_tasks
+from app.task_engine import (
+    _run_task, _executing_tasks,
+    get_task_progress, get_max_concurrent_tasks, set_max_concurrent_tasks,
+)
 
 router = APIRouter()
 
@@ -77,15 +81,21 @@ def delete_task(task_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{task_id}/execute")
-def execute_task(task_id: int, db: Session = Depends(get_db)):
+async def execute_task(task_id: int, db: Session = Depends(get_db)):
     task = db.query(models.Task).filter(models.Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     if not task.assignee_id:
         raise HTTPException(status_code=400, detail="Task has no assignee")
-    submitted = submit_task(task_id)
-    if not submitted:
+
+    # Check if already running
+    existing = _executing_tasks.get(task_id)
+    if existing and not existing.done():
         raise HTTPException(status_code=409, detail="Task is already executing")
+
+    # Start background task in the event loop
+    bg_task = asyncio.create_task(_run_task(task_id))
+    _executing_tasks[task_id] = bg_task
     return {"message": "Task submitted for execution", "task_id": task_id}
 
 

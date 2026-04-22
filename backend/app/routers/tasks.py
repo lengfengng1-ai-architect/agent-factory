@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -175,3 +176,107 @@ async def breakdown_task(task_id: int, db: Session = Depends(get_db)):
         "steps_count": len(steps),
         "steps": [{"id": s.id, "name": s.name, "order_index": s.order_index, "checkpoint": s.checkpoint} for s in steps]
     }
+
+
+@router.post("/{task_id}/steps/{step_id}/confirm")
+def confirm_step(task_id: int, step_id: int, db: Session = Depends(get_db)):
+    """User confirms a checkpoint step and continues workflow execution."""
+    task = db.query(models.Task).filter(models.Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    step = db.query(models.WorkflowStep).filter(
+        models.WorkflowStep.id == step_id,
+        models.WorkflowStep.task_id == task_id
+    ).first()
+    if not step:
+        raise HTTPException(status_code=404, detail="Step not found")
+    if step.status != "waiting_feedback":
+        raise HTTPException(status_code=400, detail="Step is not waiting for feedback")
+    
+    # Mark step as completed and continue workflow
+    step.status = "completed"
+    step.completed_at = datetime.now(timezone.utc)
+    db.commit()
+    
+    # Resume workflow execution in background
+    asyncio.create_task(execute_workflow(task_id))
+    
+    return {"success": True, "message": "Step confirmed, workflow resumed"}
+
+
+@router.post("/{task_id}/steps/{step_id}/reject")
+def reject_step(task_id: int, step_id: int, payload: dict, db: Session = Depends(get_db)):
+    """User rejects a checkpoint step result, requiring revision."""
+    task = db.query(models.Task).filter(models.Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    step = db.query(models.WorkflowStep).filter(
+        models.WorkflowStep.id == step_id,
+        models.WorkflowStep.task_id == task_id
+    ).first()
+    if not step:
+        raise HTTPException(status_code=404, detail="Step not found")
+    if step.status != "waiting_feedback":
+        raise HTTPException(status_code=400, detail="Step is not waiting for feedback")
+    
+    feedback = payload.get("feedback", "")
+    step.status = "pending"
+    # Append feedback to description for next execution
+    if feedback:
+        step.description += f"\n\n【用户反馈】{feedback}"
+    db.commit()
+    
+    return {"success": True, "message": "Step rejected, will be retried with feedback"}
+
+
+@router.post("/{task_id}/steps/{step_id}/retry")
+def retry_step(task_id: int, step_id: int, db: Session = Depends(get_db)):
+    """Retry a failed or rejected step."""
+    task = db.query(models.Task).filter(models.Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    step = db.query(models.WorkflowStep).filter(
+        models.WorkflowStep.id == step_id,
+        models.WorkflowStep.task_id == task_id
+    ).first()
+    if not step:
+        raise HTTPException(status_code=404, detail="Step not found")
+    
+    if step.status not in ("failed", "waiting_feedback"):
+        raise HTTPException(status_code=400, detail="Step cannot be retried")
+    
+    step.status = "pending"
+    step.retry_count += 1
+    db.commit()
+    
+    # Resume workflow
+    asyncio.create_task(execute_workflow(task_id))
+    
+    return {"success": True, "message": "Step retry initiated"}
+
+
+@router.post("/{task_id}/steps/{step_id}/skip")
+def skip_step(task_id: int, step_id: int, db: Session = Depends(get_db)):
+    """Skip a pending or waiting_feedback step."""
+    task = db.query(models.Task).filter(models.Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    step = db.query(models.WorkflowStep).filter(
+        models.WorkflowStep.id == step_id,
+        models.WorkflowStep.task_id == task_id
+    ).first()
+    if not step:
+        raise HTTPException(status_code=404, detail="Step not found")
+    
+    step.status = "skipped"
+    step.completed_at = datetime.now(timezone.utc)
+    db.commit()
+    
+    # Resume workflow
+    asyncio.create_task(execute_workflow(task_id))
+    
+    return {"success": True, "message": "Step skipped, workflow resumed"}

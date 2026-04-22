@@ -1,7 +1,7 @@
 """Context budget management for chat messages with file attachments."""
 
 from typing import List, Dict, Any
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from langchain.messages import SystemMessage, HumanMessage, AIMessage
 from app import models
 from app.file_utils import truncate_content, format_files_for_prompt
 

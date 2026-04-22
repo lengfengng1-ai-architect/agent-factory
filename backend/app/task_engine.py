@@ -1,9 +1,9 @@
 import asyncio
 from typing import Optional
 from sqlalchemy.orm import Session
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain.messages import HumanMessage, SystemMessage
 from app.tools import get_agent_tools, run_llm_with_tools
+from app.llm_factory import create_llm
 from app import models
 from app.database import SessionLocal
 
@@ -12,39 +12,6 @@ _semaphore: asyncio.Semaphore = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
 _executing_tasks: dict[int, asyncio.Task] = {}
 
 KIMI_CODE_BASE_URL = "https://api.kimi.com/coding/v1"
-
-
-def _resolve_kimi_base_url(api_key: str, default_url: str) -> str:
-    """Auto-detect Kimi Code (sk-kimi-) vs legacy Moonshot keys.
-
-    sk-kimi- prefixed keys route to api.kimi.com/coding/v1.
-    Legacy keys use the default moonshot URL.
-    """
-    if api_key.startswith("sk-kimi-"):
-        return KIMI_CODE_BASE_URL
-    return default_url
-
-
-def _create_llm_for_agent(agent: models.Agent, provider: models.Provider):
-    base_url = provider.base_url
-    model = agent.model or ""
-    api_key = agent.api_key or ""
-    extra_kwargs = {}
-    if provider.key == "custom":
-        base_url = agent.api_url or base_url
-    if provider.key in ("kimi", "kimi-code"):
-        base_url = _resolve_kimi_base_url(api_key, base_url)
-        if "api.kimi.com" in (base_url or ""):
-            extra_kwargs["default_headers"] = {"User-Agent": "KimiCLI/1.30.0"}
-    if provider.key == "ollama":
-        api_key = api_key or "ollama"
-    return ChatOpenAI(
-        model=model,
-        api_key=api_key,
-        base_url=base_url,
-        streaming=False,
-        **extra_kwargs,
-    )
 
 
 async def _execute_with_agent(task: models.Task, db: Session):
@@ -58,7 +25,7 @@ async def _execute_with_agent(task: models.Task, db: Session):
     if not provider or not provider.is_enabled:
         return "Error: Provider not available"
 
-    llm = _create_llm_for_agent(agent, provider)
+    llm = create_llm(agent, provider)
     tools = get_agent_tools(agent, override_root_dir=task.file_root_dir or None)
     messages = [
         SystemMessage(content=agent.system_prompt or "You are a helpful assistant."),
@@ -117,7 +84,7 @@ async def _execute_with_group(task: models.Task, db: Session):
         if not provider or not provider.is_enabled:
             continue
 
-        llm = _create_llm_for_agent(agent, provider)
+        llm = create_llm(agent, provider)
         tools = get_agent_tools(agent, override_root_dir=task.file_root_dir or None)
         expert_context = (
             "\n\n【任务说明】你是一名领域专家。主持人向你提出了一个问题/议题，"
@@ -141,7 +108,7 @@ async def _execute_with_group(task: models.Task, db: Session):
             models.Provider.key == (moderator.provider or "kimi").lower()
         ).first()
         if provider and provider.is_enabled:
-            llm = _create_llm_for_agent(moderator, provider)
+            llm = create_llm(moderator, provider)
             tools = get_agent_tools(moderator, override_root_dir=task.file_root_dir or None)
             summary_prompt = _build_moderator_summary_prompt(task_prompt, expert_responses)
             messages = [
@@ -160,8 +127,19 @@ async def _execute_with_group(task: models.Task, db: Session):
     return "\n\n".join([f"{er['agent_name']}: {er['response']}" for er in expert_responses])
 
 
+from pydantic import BaseModel, Field
+
+class _WorkflowDecision(BaseModel):
+    """Decision on whether a task needs a multi-step workflow."""
+    needs_workflow: bool = Field(description="Whether the task requires multi-step workflow execution")
+    reasoning: str = Field(description="Brief reasoning for the decision")
+
+
 async def _should_use_workflow(task: models.Task, db: Session) -> bool:
-    """Use LLM to decide if a task needs multi-step workflow."""
+    """Use LLM with structured output to decide if a task needs multi-step workflow.
+
+    Uses LangChain v1 ProviderStrategy for reliable structured output.
+    """
     agent = db.query(models.Agent).filter(models.Agent.id == task.assignee_id).first()
     if not agent:
         return False
@@ -172,7 +150,7 @@ async def _should_use_workflow(task: models.Task, db: Session) -> bool:
     if not provider or not provider.is_enabled:
         return False
 
-    llm = _create_llm_for_agent(agent, provider)
+    llm = create_llm(agent, provider)
 
     prompt = f"""请判断以下任务是否需要拆解为多步骤工作流来执行。
 
@@ -181,22 +159,20 @@ async def _should_use_workflow(task: models.Task, db: Session) -> bool:
 
 判断标准：
 - 如果任务简单明确，可以一次性直接完成（如：简单问答、翻译、写一段短文字、总结等），回答 false
-- 如果任务复杂，需要分阶段、多步骤规划执行（如：写文章需要大纲→草稿→润色、开发项目需要调研→设计→编码→测试、复杂分析需要多轮推理等），回答 true
-
-只回答 true 或 false，不要其他解释。"""
+- 如果任务复杂，需要分阶段、多步骤规划执行（如：写文章需要大纲→草稿→润色、开发项目需要调研→设计→编码→测试、复杂分析需要多轮推理等），回答 true"""
 
     messages = [
-        SystemMessage(content="You are a task complexity evaluator. Reply only with 'true' or 'false'."),
+        SystemMessage(content="You are a task complexity evaluator."),
         HumanMessage(content=prompt),
     ]
 
     try:
-        response = await llm.ainvoke(messages)
-        content = response.content.strip().lower()
-        # Accept various positive forms
-        return content.startswith(("true", "是", "需", "yes", "y"))
+        # Use provider-native structured output (v1 recommended pattern)
+        structured_llm = llm.with_structured_output(_WorkflowDecision)
+        result = await structured_llm.ainvoke(messages)
+        return result.needs_workflow
     except Exception:
-        # Default to direct execution on error to avoid blocking
+        # Fallback: direct execution on error to avoid blocking
         return False
 
 

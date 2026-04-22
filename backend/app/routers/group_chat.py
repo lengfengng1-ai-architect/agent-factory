@@ -1,4 +1,4 @@
-"""Group chat with file attachment support and context budget management."""
+"""Group chat with parallel brainstorm, debate, and moderator modes."""
 
 import asyncio
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,38 +10,12 @@ from app import redis_client
 from app.file_utils import extract_text, format_files_for_prompt
 from app.context_manager import build_messages_with_budget, get_model_context_window
 from app.summarizer import generate_summary, maybe_use_summary, get_summaries_for_group
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+from app.llm_factory import create_llm
 from app.tools import get_agent_tools, run_llm_with_tools
+from langchain.messages import HumanMessage, SystemMessage, AIMessage
 import json
 
 router = APIRouter()
-
-
-def _create_llm(agent: models.Agent, provider: models.Provider):
-    """Create a ChatOpenAI instance for an agent."""
-    base_url = provider.base_url
-    model = agent.model or ""
-    api_key = agent.api_key or ""
-
-    if provider.key == "custom":
-        base_url = agent.api_url or base_url
-    if provider.key in ("kimi", "kimi-code"):
-        from app.task_engine import _resolve_kimi_base_url
-        base_url = _resolve_kimi_base_url(api_key, base_url)
-    if provider.key == "ollama":
-        api_key = api_key or "ollama"
-
-    extra_kwargs = {}
-    if "api.kimi.com" in (base_url or ""):
-        extra_kwargs["default_headers"] = {"User-Agent": "KimiCLI/1.30.0"}
-    return ChatOpenAI(
-        model=model,
-        api_key=api_key,
-        base_url=base_url,
-        streaming=True,
-        **extra_kwargs,
-    )
 
 
 def _inject_files_into_user_message(user_message: str, file_contents: list[dict]) -> str:
@@ -56,7 +30,7 @@ def _build_agent_messages(agent: models.Agent, history: list, file_contents: lis
     """Build message list for an agent including group history and file attachments."""
     messages = [SystemMessage(content=agent.system_prompt or "You are a helpful assistant.")]
 
-    for msg in history[:-1]:  # Exclude last user message
+    for msg in history[:-1]:
         if msg["role"] == "user":
             messages.append(HumanMessage(content=msg["content"]))
         elif msg["role"] == "assistant":
@@ -84,7 +58,6 @@ async def _load_group_file_contents(
     file_id_to_meta = {f.get("id"): f for f in uploaded_files}
 
     file_contents = []
-    # For summary generation fallback, pick the first available agent's provider
     group = db.query(models.Group).filter(models.Group.id == group_id).first()
     fallback_agent = None
     fallback_provider = None
@@ -136,10 +109,6 @@ def get_group_chat_history_endpoint(group_id: int, db: Session = Depends(get_db)
     group = db.query(models.Group).filter(models.Group.id == group_id).first()
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
-
-    chat_type = group.chat_type or "parallel"
-
-    # All chat types use group-level chat history (isolated from individual agent chats)
     return {"messages": redis_client.get_group_chat_history(group_id)}
 
 
@@ -157,7 +126,6 @@ async def group_chat(group_id: int, payload: dict, db: Session = Depends(get_db)
     file_ids = payload.get("files", []) or []
     file_mode = payload.get("file_mode", "auto")
 
-    # Preload file contents (with async summary generation)
     file_contents = await _load_group_file_contents(group_id, file_ids, file_mode, db)
 
     # Load historical summaries for this group (up to 5 most recent)
@@ -180,6 +148,10 @@ async def group_chat(group_id: int, payload: dict, db: Session = Depends(get_db)
         raise HTTPException(status_code=400, detail="Parallel mode should use individual agent chat API")
 
 
+# ──────────────────────────────────────────────────────────────
+# Brainstorm — parallel execution with asyncio.gather
+# ──────────────────────────────────────────────────────────────
+
 def _brainstorm_chat(group, user_message, db, file_contents: list[dict] = None):
     redis_client.append_group_chat_message(group.id, "user", 0, "User", user_message)
 
@@ -190,18 +162,21 @@ def _brainstorm_chat(group, user_message, db, file_contents: list[dict] = None):
     async def stream():
         history = redis_client.get_group_chat_history(group.id)
 
+        # Build agent configs in parallel
+        agent_configs = []
         for agent_id in agent_ids:
             agent = db.query(models.Agent).filter(models.Agent.id == agent_id).first()
             if not agent:
                 continue
-
             provider = db.query(models.Provider).filter(
                 models.Provider.key == (agent.provider or "kimi").lower()
             ).first()
             if not provider or not provider.is_enabled:
                 continue
+            agent_configs.append((agent, provider))
 
-            # Use context budget management for each agent
+        # Execute all agents in parallel
+        async def _run_agent(agent, provider):
             context_window = get_model_context_window(db, agent)
             messages = build_messages_with_budget(
                 agent=agent,
@@ -210,24 +185,36 @@ def _brainstorm_chat(group, user_message, db, file_contents: list[dict] = None):
                 file_contents=file_contents or [],
                 context_window=context_window,
             )
-
-            llm = _create_llm(agent, provider)
+            llm = create_llm(agent, provider, streaming=False)
             tools = get_agent_tools(agent, override_root_dir=group.file_root_dir or None)
             content = await run_llm_with_tools(llm, messages, tools)
-            full_response = content
-            yield f"data: {json.dumps({'agent_id': agent.id, 'agent_name': agent.name, 'content': content, 'done': False}, ensure_ascii=False)}\n\n"
+            return {"agent": agent, "content": content}
 
-            redis_client.append_group_chat_message(group.id, "assistant", agent.id, agent.name, full_response)
+        results = await asyncio.gather(
+            *[_run_agent(a, p) for a, p in agent_configs],
+            return_exceptions=True,
+        )
+
+        for result in results:
+            if isinstance(result, Exception):
+                yield f"data: {json.dumps({'error': str(result)}, ensure_ascii=False)}\n\n"
+                continue
+            agent = result["agent"]
+            content = result["content"]
+            yield f"data: {json.dumps({'agent_id': agent.id, 'agent_name': agent.name, 'content': content, 'done': False}, ensure_ascii=False)}\n\n"
+            redis_client.append_group_chat_message(group.id, "assistant", agent.id, agent.name, content)
             yield f"data: {json.dumps({'agent_id': agent.id, 'agent_name': agent.name, 'content': '', 'done': True}, ensure_ascii=False)}\n\n"
-            history = redis_client.get_group_chat_history(group.id)
 
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
+# ──────────────────────────────────────────────────────────────
+# Debate — sequential rounds with structured output summary
+# ──────────────────────────────────────────────────────────────
+
 def _build_debate_messages(agent: models.Agent, history: list, side: str, round_num: int, file_contents: list[dict] = None):
-    """Build messages for debate mode with context-aware prompts and file attachments."""
     system_prompt = agent.system_prompt or "You are a helpful assistant."
     debate_context = f"\n\n【辩论规则】你正在参与一场辩论，你的阵营是【{side}】。"
     if round_num > 1:
@@ -258,7 +245,6 @@ def _build_debate_messages(agent: models.Agent, history: list, side: str, round_
 
 
 def _build_summary_prompt(history: list) -> str:
-    """Build summary prompt from debate history."""
     prompt = (
         "请作为辩论总结者，基于以下完整的辩论记录，给出一份公正、全面的总结。"
         "总结应包括：\n"
@@ -282,8 +268,6 @@ def _debate_chat(group, user_message, db, file_contents: list[dict] = None):
         raise HTTPException(status_code=400, detail="Debate mode requires at least 2 agents")
 
     debate_cfg = (group.config or {}).get("debate", {})
-
-    # Auto-assign compatibility when no config exists
     pro_ids = debate_cfg.get("pro_agent_ids", [])
     con_ids = debate_cfg.get("con_agent_ids", [])
     if not pro_ids and not con_ids:
@@ -304,7 +288,6 @@ def _debate_chat(group, user_message, db, file_contents: list[dict] = None):
         history = redis_client.get_group_chat_history(group.id)
 
         for r in range(rounds):
-            # Alternate: pro first, then con; rotate agents within each side
             for side, side_ids in [("正方", pro_ids), ("反方", con_ids)]:
                 agent_idx = r % len(side_ids)
                 agent_id = side_ids[agent_idx]
@@ -320,7 +303,7 @@ def _debate_chat(group, user_message, db, file_contents: list[dict] = None):
                     continue
 
                 messages = _build_debate_messages(agent, history, side, r + 1, file_contents)
-                llm = _create_llm(agent, provider)
+                llm = create_llm(agent, provider, streaming=False)
                 tools = get_agent_tools(agent, override_root_dir=group.file_root_dir or None)
                 content = await run_llm_with_tools(llm, messages, tools)
                 full_response = content
@@ -351,7 +334,7 @@ def _debate_chat(group, user_message, db, file_contents: list[dict] = None):
                         ),
                         HumanMessage(content=summary_prompt),
                     ]
-                    llm = _create_llm(summary_agent, provider)
+                    llm = create_llm(summary_agent, provider, streaming=False)
                     tools = get_agent_tools(summary_agent, override_root_dir=group.file_root_dir or None)
                     content = await run_llm_with_tools(llm, messages, tools)
                     full_response = content
@@ -368,8 +351,11 @@ def _debate_chat(group, user_message, db, file_contents: list[dict] = None):
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
+# ──────────────────────────────────────────────────────────────
+# Moderator — experts + summary
+# ──────────────────────────────────────────────────────────────
+
 def _build_moderator_expert_messages(agent: models.Agent, user_message: str, file_contents: list[dict] = None):
-    """Build messages for expert in moderator mode with context-aware prompts and file attachments."""
     system_prompt = agent.system_prompt or "You are a helpful assistant."
     expert_context = (
         "\n\n【任务说明】你是一名领域专家。主持人向你提出了一个问题/议题，"
@@ -385,7 +371,6 @@ def _build_moderator_expert_messages(agent: models.Agent, user_message: str, fil
 
 
 def _build_moderator_summary_prompt(user_message: str, expert_responses: list) -> str:
-    """Build summary prompt for moderator with structured output guidance."""
     prompt = (
         "你是一位经验丰富的主持人。以下是你向各位专家提出的问题以及他们的回答，"
         "请你综合各方意见，给出一份结构化的总结报告。\n\n"
@@ -417,29 +402,38 @@ def _moderator_chat(group, user_message, db, file_contents: list[dict] = None):
     redis_client.append_group_chat_message(group.id, "user", 0, "User", user_message)
 
     async def stream():
-        # Phase 1: Experts respond
-        expert_responses = []
-        for agent_id in expert_ids:
+        # Phase 1: Experts respond (parallel!)
+        async def _run_expert(agent_id):
             agent = db.query(models.Agent).filter(models.Agent.id == agent_id).first()
             if not agent:
-                continue
-
+                return None
             provider = db.query(models.Provider).filter(
                 models.Provider.key == (agent.provider or "kimi").lower()
             ).first()
             if not provider or not provider.is_enabled:
-                continue
+                return None
 
-            llm = _create_llm(agent, provider)
+            llm = create_llm(agent, provider, streaming=False)
             tools = get_agent_tools(agent, override_root_dir=group.file_root_dir or None)
             messages = _build_moderator_expert_messages(agent, user_message, file_contents)
 
             content = await run_llm_with_tools(llm, messages, tools)
-            response = content
-            yield f"data: {json.dumps({'phase': 'expert', 'agent_id': agent.id, 'agent_name': agent.name, 'content': content, 'done': False}, ensure_ascii=False)}\n\n"
+            return {"agent": agent, "content": content}
 
-            expert_responses.append({"agent_id": agent.id, "agent_name": agent.name, "response": response})
-            redis_client.append_group_chat_message(group.id, "assistant", agent.id, agent.name, response)
+        expert_results = await asyncio.gather(
+            *[_run_expert(aid) for aid in expert_ids],
+            return_exceptions=True,
+        )
+
+        expert_responses = []
+        for result in expert_results:
+            if isinstance(result, Exception) or result is None:
+                continue
+            agent = result["agent"]
+            content = result["content"]
+            yield f"data: {json.dumps({'phase': 'expert', 'agent_id': agent.id, 'agent_name': agent.name, 'content': content, 'done': False}, ensure_ascii=False)}\n\n"
+            expert_responses.append({"agent_id": agent.id, "agent_name": agent.name, "response": content})
+            redis_client.append_group_chat_message(group.id, "assistant", agent.id, agent.name, content)
             yield f"data: {json.dumps({'phase': 'expert', 'agent_id': agent.id, 'agent_name': agent.name, 'content': '', 'done': True}, ensure_ascii=False)}\n\n"
 
         # Phase 2: Moderator summarizes
@@ -451,7 +445,7 @@ def _moderator_chat(group, user_message, db, file_contents: list[dict] = None):
             if provider and provider.is_enabled:
                 summary_prompt = _build_moderator_summary_prompt(user_message, expert_responses)
 
-                llm = _create_llm(moderator, provider)
+                llm = create_llm(moderator, provider, streaming=False)
                 tools = get_agent_tools(moderator, override_root_dir=group.file_root_dir or None)
                 messages = [
                     SystemMessage(

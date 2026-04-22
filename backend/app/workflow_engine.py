@@ -1,16 +1,20 @@
-"""Long-running task workflow engine: breakdown + dependency graph execution."""
+"""Long-running task workflow engine: breakdown + dependency graph execution.
+
+Uses LangChain v1 structured output (with_structured_output) for reliable
+workflow breakdown instead of manual JSON parsing.
+"""
 
 import os
 import json
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, List
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain.messages import HumanMessage, SystemMessage
 
 from app import models
 from app.database import SessionLocal
-from app.task_engine import _create_llm_for_agent
+from app.llm_factory import create_llm
 from app.tools import get_agent_tools, run_llm_with_tools
 
 MAX_WORKFLOW_STEPS = 50
@@ -18,10 +22,40 @@ DEFAULT_TIMEOUT_MINUTES = 30
 DEFAULT_RETRY_COUNT = 3
 
 
+# ── Structured Output Schema ──
+
+class _WorkflowStepSpec(BaseModel):
+    """Specification for a single workflow step.
+
+    Flexible schema that accepts multiple field naming conventions
+    since LLMs may not strictly follow the schema field names.
+    """
+    name: str = Field(default="", alias="title", description="步骤名称（简短，20字以内）")
+    description: str = Field(default="", alias="desc", description="步骤的具体执行指令（详细 prompt）")
+    id: int = Field(default=0, alias="step_id", description="步骤ID（可作为order_index的备选）")
+    order_index: int = Field(default=0, alias="index", description="执行顺序（从 0 开始）")
+    checkpoint: bool = Field(default=False, description="是否需要用户确认后再继续")
+    depends_on: List[int] = Field(default_factory=list, alias="dependencies", description="依赖的前置步骤 order_index 列表（空数组表示无依赖）")
+    output_type: str = Field(default="", description='步骤产物类型: "draft" | "analysis" | "review"')
+
+    model_config = {"populate_by_name": True}
+
+
+class _WorkflowBreakdown(BaseModel):
+    """Structured output for task workflow breakdown."""
+    product_description: str = Field(default="", description="用一句话描述最终产物的格式和类型")
+    steps: List[_WorkflowStepSpec] = Field(default_factory=list, description="步骤数组")
+
+
 # ── Breakdown ──
 
 async def breakdown_task(task: models.Task, db: Session, require_first_checkpoint: bool = None):
-    """Use LLM to break down a task into workflow steps."""
+    """Use LLM to break down a task into workflow steps.
+
+    Tries LangChain v1 with_structured_output first for reliable JSON,
+    falls back to manual JSON parsing if structured output fails
+    (some providers don't fully support schema-constrained generation).
+    """
     cfg = task.workflow_config or {}
     if require_first_checkpoint is None:
         require_first_checkpoint = not cfg.get("disable_checkpoints", True)
@@ -38,7 +72,7 @@ async def breakdown_task(task: models.Task, db: Session, require_first_checkpoin
     if not provider or not provider.is_enabled:
         raise ValueError("Agent provider not available")
     
-    llm = _create_llm_for_agent(agent, provider)
+    llm = create_llm(agent, provider)
     
     prompt = f"""你是一位任务规划专家。请将以下复杂任务拆解为可执行的步骤列表。
 
@@ -47,7 +81,7 @@ async def breakdown_task(task: models.Task, db: Session, require_first_checkpoin
 
 请分析任务类型，推断最终产物的格式（如：文章、代码、报告、设计稿、数据分析结果等），然后输出 JSON 对象，包含两个字段：
 
-1. product_description: 用一句话描述最终产物的格式和类型（如"一篇连贯的科技评论文章"、"一个可运行的 Python 脚本"、"一份包含图表的数据分析报告"）
+1. product_description: 用一句话描述最终产物的格式和类型
 
 2. steps: 步骤数组，每个元素包含：
    - name: 步骤名称（简短，20字以内）
@@ -56,17 +90,15 @@ async def breakdown_task(task: models.Task, db: Session, require_first_checkpoin
    - checkpoint: 是否需要用户确认后再继续（true/false）
    - depends_on: 依赖的前置步骤 order_index 列表（空数组表示无依赖）
    - output_type: 步骤产物类型，必须是以下之一：
-     * "draft" — 该步骤的产物是直接构成最终产物的内容（如文章段落、代码片段、报告正文）
-     * "analysis" — 该步骤的产物是内部分析/规划，不直接出现在最终产物中（如主题分析、资料搜集、大纲构思）
-     * "review" — 该步骤的产物是审校/检查意见，不直接出现在最终产物中（如格式检查、润色建议、错误修正）
+     * "draft" — 该步骤的产物是直接构成最终产物的内容
+     * "analysis" — 该步骤的产物是内部分析/规划
+     * "review" — 该步骤的产物是审校/检查意见
 
 注意：
 1. 步骤数控制在 3-20 个
 2. 依赖关系必须形成有向无环图（DAG）
 3. 关键里程碑节点应设置为 checkpoint=true
-4. 如果任务涉及信息收集，设置独立的搜索/调研步骤（output_type=analysis）
-5. 如果任务涉及内容创作，设置大纲→草稿→润色的递进步骤，其中草稿步骤 output_type=draft，审校步骤 output_type=review
-6. 最终产物由所有 output_type=draft 的步骤产物按顺序聚合而成
+4. 最终产物由所有 output_type=draft 的步骤产物按顺序聚合而成
 
 只输出 JSON，不要其他解释。"""
 
@@ -75,26 +107,49 @@ async def breakdown_task(task: models.Task, db: Session, require_first_checkpoin
         HumanMessage(content=prompt),
     ]
     
-    response = await llm.ainvoke(messages)
-    content = response.content.strip()
-    
-    # Extract JSON from markdown code block if present
-    if content.startswith("```"):
-        lines = content.split("\n")
-        if lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].startswith("```"):
-            lines = lines[:-1]
-        content = "\n".join(lines).strip()
-    
-    data = json.loads(content)
-    if not isinstance(data, dict):
-        raise ValueError("LLM did not return a dict with product_description and steps")
-    
-    product_description = data.get("product_description", "最终产物")
-    steps_data = data.get("steps", [])
-    if not isinstance(steps_data, list):
-        raise ValueError("LLM did not return a steps list")
+    # Try structured output first (v1 recommended pattern)
+    try:
+        structured_llm = llm.with_structured_output(_WorkflowBreakdown)
+        result = await structured_llm.ainvoke(messages)
+        product_description = result.product_description or "最终产物"
+        steps_data = result.steps
+    except Exception:
+        # Fallback: manual JSON parsing for providers with weak structured output support
+        response = await llm.ainvoke(messages)
+        content = response.content.strip()
+        
+        # Extract JSON from markdown code block if present
+        if content.startswith("```"):
+            lines = content.split("\n")
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            content = "\n".join(lines).strip()
+        
+        data = json.loads(content)
+        if not isinstance(data, dict):
+            raise ValueError("LLM did not return a dict with product_description and steps")
+        
+        product_description = data.get("product_description", "最终产物")
+        raw_steps = data.get("steps", [])
+        if not isinstance(raw_steps, list):
+            raise ValueError("LLM did not return a steps list")
+        
+        # Normalize step dicts to _WorkflowStepSpec
+        steps_data = []
+        for i, rs in enumerate(raw_steps):
+            if not isinstance(rs, dict):
+                continue
+            steps_data.append(_WorkflowStepSpec(
+                name=rs.get("name") or rs.get("title") or f"步骤 {i+1}",
+                description=rs.get("description", rs.get("desc", "")),
+                id=rs.get("id", rs.get("step_id", 0)),
+                order_index=rs.get("order_index", rs.get("index", rs.get("id", i))),
+                checkpoint=bool(rs.get("checkpoint", False)),
+                depends_on=rs.get("depends_on", rs.get("dependencies", [])),
+                output_type=rs.get("output_type", ""),
+            ))
     
     if len(steps_data) > MAX_WORKFLOW_STEPS:
         steps_data = steps_data[:MAX_WORKFLOW_STEPS]
@@ -104,13 +159,15 @@ async def breakdown_task(task: models.Task, db: Session, require_first_checkpoin
     order_to_id = {}
     
     for i, sd in enumerate(steps_data):
+        # LLM may return 'id' instead of 'order_index'; use id as fallback
+        order_idx = sd.order_index if sd.order_index else (sd.id if sd.id else i)
         step = models.WorkflowStep(
             task_id=task.id,
-            name=sd.get("name", f"步骤 {i+1}"),
-            description=sd.get("description", ""),
-            order_index=sd.get("order_index", i),
-            checkpoint=bool(sd.get("checkpoint", False)),
-            output_type=sd.get("output_type", ""),
+            name=sd.name or f"步骤 {i+1}",
+            description=sd.description or "",
+            order_index=order_idx,
+            checkpoint=bool(sd.checkpoint),
+            output_type=sd.output_type or "",
             depends_on=[],  # Will update after all steps created
             agent_id=task.assignee_id if task.assignee_type == "agent" else None,
             status="pending",
@@ -123,7 +180,7 @@ async def breakdown_task(task: models.Task, db: Session, require_first_checkpoin
     
     # Resolve depends_on from order_index to step_id
     for i, sd in enumerate(steps_data):
-        dep_orders = sd.get("depends_on", []) or []
+        dep_orders = sd.depends_on or []
         dep_ids = [order_to_id[o] for o in dep_orders if o in order_to_id]
         created_steps[i].depends_on = dep_ids
     
@@ -188,7 +245,7 @@ async def execute_step(step: models.WorkflowStep, task: models.Task, db: Session
         db.commit()
         return
     
-    llm = _create_llm_for_agent(agent, provider)
+    llm = create_llm(agent, provider)
     tools = get_agent_tools(agent, override_root_dir=task.file_root_dir or None)
     
     # Collect FULL artifact content from completed dependency steps

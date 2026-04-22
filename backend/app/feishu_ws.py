@@ -11,8 +11,8 @@ from app import models
 from app.database import SessionLocal
 from app.feishu_client import send_text_message
 from app.redis_client import append_feishu_chat_message, get_feishu_chat_history
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+from app.llm_factory import create_llm
+from langchain.messages import HumanMessage, SystemMessage, AIMessage
 
 # Map: agent_id -> ws_client thread
 _ws_threads: dict[int, threading.Thread] = {}
@@ -32,28 +32,7 @@ async def _reply_to_feishu(agent_id: int, receive_id: str, text: str):
         if not provider or not provider.is_enabled:
             return
 
-        base_url = provider.base_url
-        model = agent.model or ""
-        api_key = agent.api_key or ""
-        if provider.key == "custom":
-            base_url = agent.api_url or base_url
-        if provider.key in ("kimi", "kimi-code"):
-            from app.task_engine import _resolve_kimi_base_url
-            base_url = _resolve_kimi_base_url(api_key, base_url)
-        if provider.key == "ollama":
-            api_key = api_key or "ollama"
-
-        extra_kwargs = {}
-        if "api.kimi.com" in (base_url or ""):
-            extra_kwargs["default_headers"] = {"User-Agent": "KimiCLI/1.30.0"}
-        llm = ChatOpenAI(
-            model=model,
-            api_key=api_key,
-            base_url=base_url,
-            streaming=False,
-            max_tokens=2000,
-            **extra_kwargs,
-        )
+        llm = create_llm(agent, provider, streaming=False, max_tokens=2000)
 
         # Save user message to Redis (isolated feishu history)
         append_feishu_chat_message(agent_id, "user", text)

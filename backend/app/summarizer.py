@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Optional
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain.messages import SystemMessage, HumanMessage
 from app import models
 from app.database import SessionLocal
 from app.file_utils import (
@@ -132,31 +132,12 @@ def get_summaries_for_group(group_id: int) -> list[dict]:
         db.close()
 
 
-def _create_llm(agent: models.Agent, provider: models.Provider) -> ChatOpenAI:
+from app.llm_factory import create_llm
+
+
+def _create_llm(agent: models.Agent, provider: models.Provider):
     """Create a non-streaming LLM for summarization."""
-    base_url = provider.base_url
-    model = agent.model or ""
-    api_key = agent.api_key or ""
-
-    if provider.key == "custom":
-        base_url = agent.api_url or base_url
-    if provider.key in ("kimi", "kimi-code"):
-        from app.task_engine import _resolve_kimi_base_url
-        base_url = _resolve_kimi_base_url(api_key, base_url)
-    if provider.key == "ollama":
-        api_key = api_key or "ollama"
-
-    extra_kwargs = {}
-    if "api.kimi.com" in (base_url or ""):
-        extra_kwargs["default_headers"] = {"User-Agent": "KimiCLI/1.30.0"}
-    return ChatOpenAI(
-        model=model,
-        api_key=api_key,
-        base_url=base_url,
-        streaming=False,
-        max_tokens=1500,
-        **extra_kwargs,
-    )
+    return create_llm(agent, provider, streaming=False, max_tokens=1500)
 
 
 async def generate_summary(

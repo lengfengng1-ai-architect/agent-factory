@@ -6,22 +6,19 @@ from app.database import get_db
 from app import models
 from app.redis_client import (
     get_chat_history, append_chat_message, append_group_chat_message,
-    set_chat_partial, get_chat_partial, delete_chat_partial,
     get_chat_files,
 )
 from app.file_utils import extract_text
 from app.context_manager import build_messages_with_budget, get_model_context_window
 from app.summarizer import generate_summary, maybe_use_summary, get_summaries_for_agent
 from app.tools import get_agent_tools
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
+from app.llm_factory import create_llm
+from langchain.agents import create_agent
+from langchain.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
 import json
 import os
 
 router = APIRouter()
-
-# Track background generation tasks per agent
-_generating_tasks: dict[int, asyncio.Task] = {}
 
 
 @router.get("/{agent_id}/chat/history")
@@ -39,8 +36,6 @@ async def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(ge
     if not user_message:
         raise HTTPException(status_code=400, detail="message is required")
 
-    system_prompt = agent.system_prompt or "You are a helpful assistant."
-
     provider = db.query(models.Provider).filter(
         models.Provider.key == (agent.provider or "kimi").lower()
     ).first()
@@ -49,27 +44,13 @@ async def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(ge
     if not provider.is_enabled:
         raise HTTPException(status_code=400, detail=f"Provider {provider.name} is disabled")
 
-    base_url = provider.base_url
-    model = agent.model or ""
-    api_key = agent.api_key or ""
+    # Build LLM
+    try:
+        llm = create_llm(agent, provider, streaming=True)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-    if provider.key == "custom":
-        base_url = agent.api_url or base_url
-        model = agent.model
-        if not api_key:
-            raise HTTPException(status_code=400, detail="Agent api_key not configured")
-    else:
-        if not base_url:
-            raise HTTPException(status_code=400, detail="Provider base_url not configured")
-        if not model:
-            raise HTTPException(status_code=400, detail="Agent model not configured")
-        if provider.key in ("kimi", "kimi-code"):
-            from app.task_engine import _resolve_kimi_base_url
-            base_url = _resolve_kimi_base_url(api_key, base_url)
-        if provider.key == "ollama":
-            api_key = api_key or "ollama"
-        elif not api_key:
-            raise HTTPException(status_code=400, detail="Agent api_key not configured")
+    system_prompt = agent.system_prompt or "You are a helpful assistant."
 
     # Save user message
     append_chat_message(agent_id, "user", user_message)
@@ -78,18 +59,16 @@ async def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(ge
         from app.database import get_db as get_db_local
         db_local = next(get_db_local())
         try:
-            agent = db_local.query(models.Agent).filter(models.Agent.id == agent_id).first()
-            if agent:
+            agent_obj = db_local.query(models.Agent).filter(models.Agent.id == agent_id).first()
+            if agent_obj:
                 append_group_chat_message(group_id, "user", 0, "User", user_message)
         finally:
             db_local.close()
 
     # Build messages with history and file attachments
     history = get_chat_history(agent_id)
-
-    # Load file contents
     file_ids = payload.get("files", []) or []
-    file_mode = payload.get("file_mode", "auto")  # "auto" | "truncate" | "summary"
+    file_mode = payload.get("file_mode", "auto")
     file_contents = []
 
     if file_ids:
@@ -109,7 +88,6 @@ async def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(ge
             content = result.get("content", "")
             is_summary = result.get("is_summary", False)
 
-            # If summary is needed but not cached, generate it now
             if result.get("needs_summary"):
                 try:
                     summary = await asyncio.wait_for(
@@ -120,7 +98,7 @@ async def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(ge
                         content = summary
                         is_summary = True
                 except asyncio.TimeoutError:
-                    pass  # fallback to full/truncated content
+                    pass
 
             file_contents.append({"name": name, "content": content, "is_summary": is_summary})
 
@@ -134,7 +112,6 @@ async def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(ge
                 "is_summary": True,
             })
 
-    # Get context window and build budget-constrained messages
     context_window = get_model_context_window(db, agent)
     messages = build_messages_with_budget(
         agent=agent,
@@ -151,113 +128,49 @@ async def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(ge
         if group and group.file_root_dir:
             override_root = group.file_root_dir
 
-    extra_kwargs = {}
-    if "api.kimi.com" in (base_url or ""):
-        extra_kwargs["default_headers"] = {"User-Agent": "KimiCLI/1.30.0"}
-    llm = ChatOpenAI(
-        model=model,
-        api_key=api_key,
-        base_url=base_url,
-        streaming=True,
-        **extra_kwargs,
-    )
+    tools = get_agent_tools(agent, override_root_dir=override_root)
 
-    async def _background_generate(
-        agent_id: int,
-        msgs: list,
-        llm_instance: ChatOpenAI,
-        group_id: int | None,
-        agent_name: str,
-        override_root: str | None,
-    ):
-        """Run LLM generation in background, saving partial results to Redis."""
+    async def stream_response():
+        """Stream agent response directly using agent.astream()."""
         full_response = ""
-        try:
-            tools = get_agent_tools(agent, override_root_dir=override_root)
 
+        try:
             if tools:
-                llm_with_tools = llm_instance.bind_tools(tools)
-                response = await llm_with_tools.ainvoke(msgs)
-
-                if response.tool_calls:
-                    msgs.append(response)
-                    for tool_call in response.tool_calls:
-                        tool = next((t for t in tools if t.name == tool_call["name"]), None)
-                        if tool:
-                            try:
-                                result = await tool.ainvoke(tool_call["args"])
-                            except Exception as e:
-                                result = f"Error executing tool: {e}"
-                        else:
-                            result = f"Tool '{tool_call['name']}' not found"
-                        msgs.append(ToolMessage(content=str(result), tool_call_id=tool_call["id"]))
-
-                    async for chunk in llm_with_tools.astream(msgs):
-                        text = chunk.content
-                        if text:
-                            full_response += text
-                            set_chat_partial(agent_id, full_response)
-                else:
-                    async for chunk in llm_with_tools.astream(msgs):
-                        text = chunk.content
-                        if text:
-                            full_response += text
-                            set_chat_partial(agent_id, full_response)
+                # Use create_agent for full ReAct loop with streaming
+                agent_runnable = create_agent(
+                    llm,
+                    tools=tools,
+                    system_prompt=system_prompt,
+                )
+                async for event in agent_runnable.astream(
+                    {"messages": messages},
+                    stream_mode="messages",
+                ):
+                    # event is a message object (AIMessage, ToolMessage, etc.)
+                    if isinstance(event, AIMessage) and event.content:
+                        full_response += event.content
+                        yield f"data: {json.dumps({'content': event.content}, ensure_ascii=False)}\n\n"
+                    elif isinstance(event, AIMessage) and event.tool_calls:
+                        # Optionally notify frontend about tool calls
+                        tool_names = [tc["name"] for tc in event.tool_calls]
+                        yield f"data: {json.dumps({'tool_calls': tool_names}, ensure_ascii=False)}\n\n"
             else:
-                async for chunk in llm_instance.astream(msgs):
-                    text = chunk.content
-                    if text:
-                        full_response += text
-                        set_chat_partial(agent_id, full_response)
+                # No tools: simple LLM streaming
+                async for chunk in llm.astream(messages):
+                    if chunk.content:
+                        full_response += chunk.content
+                        yield f"data: {json.dumps({'content': chunk.content}, ensure_ascii=False)}\n\n"
 
-            # Save final complete response
-            append_chat_message(agent_id, "assistant", full_response)
-            if group_id:
-                append_group_chat_message(group_id, "assistant", agent_id, agent_name, full_response)
-        except asyncio.CancelledError:
-            # Generation was cancelled (e.g. user sent a new message)
-            raise
-        finally:
-            delete_chat_partial(agent_id)
-            _generating_tasks.pop(agent_id, None)
+            # Save final response
+            if full_response:
+                append_chat_message(agent_id, "assistant", full_response)
+                if group_id:
+                    append_group_chat_message(group_id, "assistant", agent_id, agent.name, full_response)
 
-    # Cancel any existing generation for this agent
-    existing_task = _generating_tasks.get(agent_id)
-    if existing_task and not existing_task.done():
-        existing_task.cancel()
-        try:
-            await existing_task
-        except asyncio.CancelledError:
-            pass
-        delete_chat_partial(agent_id)
+        except Exception as e:
+            error_msg = f"[Error: {e}]"
+            yield f"data: {json.dumps({'error': error_msg}, ensure_ascii=False)}\n\n"
 
-    # Start new background generation task
-    task = asyncio.create_task(
-        _background_generate(agent_id, messages, llm, group_id, agent.name, override_root)
-    )
-    _generating_tasks[agent_id] = task
+        yield "data: [DONE]\n\n"
 
-    async def stream():
-        """Stream generation progress from background task."""
-        last_len = 0
-
-        while True:
-            partial = get_chat_partial(agent_id)
-            if partial and len(partial) > last_len:
-                new_text = partial[last_len:]
-                last_len = len(partial)
-                yield f"data: {json.dumps({'content': new_text}, ensure_ascii=False)}\n\n"
-
-            current_task = _generating_tasks.get(agent_id)
-            if current_task and current_task.done():
-                # Send any remaining content
-                partial = get_chat_partial(agent_id)
-                if partial and len(partial) > last_len:
-                    new_text = partial[last_len:]
-                    yield f"data: {json.dumps({'content': new_text}, ensure_ascii=False)}\n\n"
-                yield "data: [DONE]\n\n"
-                break
-
-            await asyncio.sleep(0.2)
-
-    return StreamingResponse(stream(), media_type="text/event-stream")
+    return StreamingResponse(stream_response(), media_type="text/event-stream")

@@ -22,6 +22,13 @@ interface Props {
 
 export default function TaskModal({ task, onClose, onSave }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('overview')
+
+  // Auto-switch to workflow tab when waiting for feedback
+  useEffect(() => {
+    if (task?.workflow_status === 'waiting_feedback') {
+      setActiveTab('workflow')
+    }
+  }, [task?.workflow_status])
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [status, setStatus] = useState<TaskStatus>('pending')

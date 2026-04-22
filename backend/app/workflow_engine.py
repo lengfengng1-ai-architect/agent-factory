@@ -270,6 +270,7 @@ async def execute_workflow(task_id: int):
             
             # If checkpoint, pause for human feedback
             if step.checkpoint:
+                step.status = "waiting_feedback"
                 # Update progress before pausing
                 all_steps = db.query(models.WorkflowStep).filter(
                     models.WorkflowStep.task_id == task_id

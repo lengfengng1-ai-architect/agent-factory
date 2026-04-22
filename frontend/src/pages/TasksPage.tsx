@@ -68,7 +68,7 @@ export default function TasksPage() {
       update.mutate({ id: taskId, data: { status: newStatus } }, {
         onSuccess: () => {
           // Auto-execute when dragged to in_progress
-          if (newStatus === 'in_progress' && task.auto_execute && task.assignee_id) {
+          if (newStatus === 'in_progress' && task.assignee_id) {
             execute.mutate(taskId)
           }
         }

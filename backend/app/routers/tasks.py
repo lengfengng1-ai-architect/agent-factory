@@ -26,6 +26,18 @@ def update_concurrency_config(payload: dict):
     return {"max_concurrent_tasks": get_max_concurrent_tasks()}
 
 
+def _enrich_task_workflow_stats(task: models.Task, db: Session):
+    """Attach total_steps and completed_steps to a Task for workflow display."""
+    if task.workflow_plan:
+        steps = db.query(models.WorkflowStep).filter(models.WorkflowStep.task_id == task.id).all()
+        task.total_steps = len(steps)
+        task.completed_steps = sum(1 for s in steps if s.status in ("completed", "skipped"))
+    else:
+        task.total_steps = None
+        task.completed_steps = None
+    return task
+
+
 @router.get("/", response_model=List[schemas.TaskResponse])
 def list_tasks(
     status: Optional[str] = None,
@@ -40,7 +52,10 @@ def list_tasks(
         query = query.filter(models.Task.assignee_type == assignee_type)
     if assignee_id is not None:
         query = query.filter(models.Task.assignee_id == assignee_id)
-    return query.all()
+    tasks = query.all()
+    for task in tasks:
+        _enrich_task_workflow_stats(task, db)
+    return tasks
 
 
 @router.post("/", response_model=schemas.TaskResponse)
@@ -57,6 +72,7 @@ def get_task(task_id: int, db: Session = Depends(get_db)):
     task = db.query(models.Task).filter(models.Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+    _enrich_task_workflow_stats(task, db)
     return task
 
 

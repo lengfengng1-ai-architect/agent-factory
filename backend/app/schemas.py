@@ -92,6 +92,8 @@ class TaskResponse(TaskBase):
     id: int
     created_at: datetime
     updated_at: Optional[datetime] = None
+    total_steps: Optional[int] = None
+    completed_steps: Optional[int] = None
 
     class Config:
         from_attributes = True

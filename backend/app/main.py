@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from app.database import engine, Base, get_db
 from app.routers import agents, groups, tasks, chat, models, providers, group_chat
+from app.task_engine import start_scheduler
 
 Base.metadata.create_all(bind=engine)
 
@@ -64,3 +65,4 @@ def on_startup():
         providers.init_builtin_providers(db)
     finally:
         db.close()
+    start_scheduler()

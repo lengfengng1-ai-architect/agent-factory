@@ -207,3 +207,55 @@ def set_max_concurrent_tasks(n: int):
 
 def get_max_concurrent_tasks() -> int:
     return MAX_CONCURRENT_TASKS
+
+
+# ---------- Scheduler ----------
+_scheduler_task: Optional[asyncio.Task] = None
+
+
+async def _scheduler_loop():
+    """Background scheduler: auto-start pending auto-execute tasks up to concurrency limit."""
+    while True:
+        await asyncio.sleep(3)
+        db = SessionLocal()
+        try:
+            running_count = sum(1 for t in _executing_tasks.values() if not t.done())
+            if running_count >= MAX_CONCURRENT_TASKS:
+                continue
+
+            pending_tasks = (
+                db.query(models.Task)
+                .filter(
+                    models.Task.status == "pending",
+                    models.Task.auto_execute == True,
+                    models.Task.assignee_id.isnot(None),
+                )
+                .order_by(models.Task.created_at)
+                .all()
+            )
+
+            for task in pending_tasks:
+                if running_count >= MAX_CONCURRENT_TASKS:
+                    break
+                existing = _executing_tasks.get(task.id)
+                if existing and not existing.done():
+                    continue
+                bg_task = asyncio.create_task(_run_task(task.id))
+                _executing_tasks[task.id] = bg_task
+                running_count += 1
+        finally:
+            db.close()
+
+
+def start_scheduler():
+    """Start the background task scheduler."""
+    global _scheduler_task
+    if _scheduler_task is None or _scheduler_task.done():
+        _scheduler_task = asyncio.create_task(_scheduler_loop())
+
+
+def stop_scheduler():
+    """Stop the background task scheduler."""
+    global _scheduler_task
+    if _scheduler_task and not _scheduler_task.done():
+        _scheduler_task.cancel()

@@ -1,14 +1,15 @@
 import type { Agent } from '../types'
-import { Bot, MessageSquare, Pencil, Trash2 } from 'lucide-react'
+import { Bot, MessageSquare, Pencil, Trash2, MessageCircle } from 'lucide-react'
 
 interface Props {
   agent: Agent
   onEdit: (agent: Agent) => void
   onDelete: (id: number) => void
   onChat: (agent: Agent) => void
+  onFeishuConfig: (agent: Agent) => void
 }
 
-export default function AgentCard({ agent, onEdit, onDelete, onChat }: Props) {
+export default function AgentCard({ agent, onEdit, onDelete, onChat, onFeishuConfig }: Props) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow">
       <div className="flex items-start justify-between">
@@ -30,6 +31,13 @@ export default function AgentCard({ agent, onEdit, onDelete, onChat }: Props) {
         <div className="flex gap-1">
           <button onClick={() => onChat(agent)} className="p-1.5 hover:bg-blue-50 text-blue-600 rounded-lg" title="Chat">
             <MessageSquare size={16} />
+          </button>
+          <button
+            onClick={() => onFeishuConfig(agent)}
+            className={`p-1.5 rounded-lg ${agent.config?.feishu?.enabled ? 'text-indigo-600 hover:bg-indigo-50' : 'text-gray-400 hover:bg-gray-100'}`}
+            title="配置飞书机器人"
+          >
+            <MessageCircle size={16} />
           </button>
           <button onClick={() => onEdit(agent)} className="p-1.5 hover:bg-gray-100 rounded-lg" title="Edit">
             <Pencil size={16} />

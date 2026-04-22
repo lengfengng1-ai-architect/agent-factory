@@ -6,11 +6,13 @@ import type { Agent } from '../types'
 import AgentCard from '../components/AgentCard'
 import AgentModal from '../components/AgentModal'
 import ChatModal from '../components/ChatModal'
+import FeishuConfigModal from '../components/FeishuConfigModal'
 
 export default function AgentsPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Agent | null>(null)
   const [chatAgent, setChatAgent] = useState<Agent | null>(null)
+  const [feishuAgent, setFeishuAgent] = useState<Agent | null>(null)
   const qc = useQueryClient()
 
   const { data: agents = [], isLoading } = useQuery({ queryKey: ['agents'], queryFn: agentApi.list })
@@ -42,11 +44,13 @@ export default function AgentsPage() {
             onEdit={a => { setEditing(a); setModalOpen(true) }}
             onDelete={id => remove.mutate(id)}
             onChat={a => setChatAgent(a)}
+            onFeishuConfig={a => setFeishuAgent(a)}
           />
         ))}
       </div>
       {modalOpen && <AgentModal agent={editing} onClose={() => setModalOpen(false)} onSave={handleSave} />}
       {chatAgent && <ChatModal agent={chatAgent} onClose={() => setChatAgent(null)} />}
+      {feishuAgent && <FeishuConfigModal agent={feishuAgent} onClose={() => setFeishuAgent(null)} />}
     </div>
   )
 }

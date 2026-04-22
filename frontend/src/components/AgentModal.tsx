@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, RefreshCw } from 'lucide-react'
 import { providerApi } from '../api/client'
 import type { Agent, Provider } from '../types'
-import FeishuConfigModal from './FeishuConfigModal'
+
 
 interface Props {
   agent?: Agent | null
@@ -21,7 +21,7 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
   const [enableBrowsing, setEnableBrowsing] = useState(false)
   const [enableFileAccess, setEnableFileAccess] = useState(false)
   const [fileAccessRoot, setFileAccessRoot] = useState('./workspace')
-  const [showFeishuModal, setShowFeishuModal] = useState(false)
+
   const [model, setModel] = useState('')
   const [apiUrl, setApiUrl] = useState('')
   const [apiKey, setApiKey] = useState('')
@@ -76,7 +76,7 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
       setEnableBrowsing(false)
       setEnableFileAccess(false)
       setFileAccessRoot('./workspace')
-      setShowFeishuModal(false)
+
     }
   }, [agent, providers])
 
@@ -261,20 +261,6 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
             )}
           </div>
 
-          {agent && (
-            <button
-              type="button"
-              onClick={() => setShowFeishuModal(true)}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm rounded-lg border border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition-colors"
-            >
-              <span>🤖</span>
-              <span>配置飞书机器人</span>
-              {(agent.config as Record<string, any>)?.feishu?.enabled && (
-                <span className="ml-1 w-2 h-2 rounded-full bg-green-500" title="已启用" />
-              )}
-            </button>
-          )}
-
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-50">Cancel</button>
             <button type="submit" className="px-4 py-2 text-sm rounded-lg bg-gray-900 text-white hover:bg-gray-800">Save</button>
@@ -283,9 +269,7 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
       </div>
     </div>
 
-    {agent && showFeishuModal && (
-      <FeishuConfigModal agent={agent} onClose={() => setShowFeishuModal(false)} />
-    )}
+
   </>
   )
 }

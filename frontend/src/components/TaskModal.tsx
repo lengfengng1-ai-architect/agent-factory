@@ -13,6 +13,7 @@ interface Props {
     assignee_type: 'agent' | 'group';
     assignee_id: number | null;
     auto_execute: boolean;
+    file_root_dir: string;
   }) => void
 }
 
@@ -23,6 +24,7 @@ export default function TaskModal({ task, onClose, onSave }: Props) {
   const [assigneeType, setAssigneeType] = useState<'agent' | 'group'>('agent')
   const [assigneeId, setAssigneeId] = useState<number | null>(null)
   const [autoExecute, setAutoExecute] = useState(false)
+  const [fileRootDir, setFileRootDir] = useState('')
 
   const { data: agents = [] } = useQuery({ queryKey: ['agents'], queryFn: agentApi.list })
   const { data: groups = [] } = useQuery({ queryKey: ['groups'], queryFn: groupApi.list })
@@ -35,6 +37,7 @@ export default function TaskModal({ task, onClose, onSave }: Props) {
       setAssigneeType(task.assignee_type)
       setAssigneeId(task.assignee_id)
       setAutoExecute(task.auto_execute ?? false)
+      setFileRootDir(task.file_root_dir || '')
     } else {
       setTitle('')
       setDescription('')
@@ -42,6 +45,7 @@ export default function TaskModal({ task, onClose, onSave }: Props) {
       setAssigneeType('agent')
       setAssigneeId(null)
       setAutoExecute(false)
+      setFileRootDir('')
     }
   }, [task])
 
@@ -56,6 +60,7 @@ export default function TaskModal({ task, onClose, onSave }: Props) {
       assignee_type: assigneeType,
       assignee_id: hasAssignee ? assigneeId : null,
       auto_execute: hasAssignee ? autoExecute : false,
+      file_root_dir: fileRootDir,
     })
     onClose()
   }
@@ -119,6 +124,17 @@ export default function TaskModal({ task, onClose, onSave }: Props) {
               <span className="text-sm text-gray-700">拖入 In Progress 后自动执行</span>
             </label>
           )}
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700">文件访问根目录</label>
+            <input
+              className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              placeholder="留空使用 Agent 默认 workspace"
+              value={fileRootDir}
+              onChange={e => setFileRootDir(e.target.value)}
+            />
+            <p className="text-xs text-gray-400 mt-1">Agent 文件操作将被限制在此目录内</p>
+          </div>
 
           {/* Result display */}
           {task && task.status === 'in_progress' && (

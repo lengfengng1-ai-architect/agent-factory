@@ -21,7 +21,7 @@ export default function GroupsPage() {
 
   const agentMap = new Map(agents.map(a => [a.id, a.name]))
 
-  const handleSave = (data: { name: string; description: string; agent_ids: number[]; chat_type: string; config?: Record<string, any> }) => {
+  const handleSave = (data: { name: string; description: string; agent_ids: number[]; chat_type: string; config?: Record<string, any>; file_root_dir: string }) => {
     if (editing) update.mutate({ id: editing.id, data })
     else create.mutate(data)
   }

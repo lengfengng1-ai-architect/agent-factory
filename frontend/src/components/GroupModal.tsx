@@ -6,7 +6,7 @@ import { agentApi } from '../api/client'
 interface Props {
   group?: Group | null
   onClose: () => void
-  onSave: (data: { name: string; description: string; agent_ids: number[]; chat_type: string; config?: Record<string, any> }) => void
+  onSave: (data: { name: string; description: string; agent_ids: number[]; chat_type: string; config?: Record<string, any>; file_root_dir: string }) => void
 }
 
 interface DebateConfig {
@@ -34,6 +34,7 @@ export default function GroupModal({ group, onClose, onSave }: Props) {
   const [moderatorConfig, setModeratorConfig] = useState<ModeratorConfig>({
     moderator_id: undefined,
   })
+  const [fileRootDir, setFileRootDir] = useState('')
 
   const { data: agents = [] } = useQuery({ queryKey: ['agents'], queryFn: agentApi.list })
 
@@ -56,6 +57,7 @@ export default function GroupModal({ group, onClose, onSave }: Props) {
       if (mCfg) {
         setModeratorConfig({ moderator_id: mCfg.moderator_id })
       }
+      setFileRootDir(group.file_root_dir || '')
     } else {
       setName('')
       setDescription('')
@@ -63,6 +65,7 @@ export default function GroupModal({ group, onClose, onSave }: Props) {
       setChatType('parallel')
       setDebateConfig({ pro_agent_ids: [], con_agent_ids: [], rounds: 3, summary_agent_id: undefined })
       setModeratorConfig({ moderator_id: undefined })
+      setFileRootDir('')
     }
   }, [group])
 
@@ -127,6 +130,7 @@ export default function GroupModal({ group, onClose, onSave }: Props) {
       description,
       agent_ids: selectedAgentIds,
       chat_type: chatType,
+      file_root_dir: fileRootDir,
     }
     if (chatType === 'debate') {
       payload.config = {
@@ -305,6 +309,16 @@ export default function GroupModal({ group, onClose, onSave }: Props) {
                 </label>
               ))}
             </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">文件访问根目录</label>
+            <input
+              className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              placeholder="留空使用 Agent 默认 workspace"
+              value={fileRootDir}
+              onChange={e => setFileRootDir(e.target.value)}
+            />
+            <p className="text-xs text-gray-400 mt-1">Group 内所有 Agent 的文件操作将被限制在此目录内</p>
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-50">Cancel</button>

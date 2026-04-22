@@ -8,6 +8,33 @@ from app.task_engine import start_scheduler
 
 Base.metadata.create_all(bind=engine)
 
+# SQLite migration: create file_summaries table if not exists
+with engine.connect() as conn:
+    try:
+        conn.execute(text("SELECT 1 FROM file_summaries LIMIT 1"))
+    except Exception:
+        conn.execute(text("""
+            CREATE TABLE file_summaries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                content_hash VARCHAR UNIQUE,
+                file_name VARCHAR NOT NULL,
+                file_ext VARCHAR,
+                file_size INTEGER,
+                char_count INTEGER,
+                summary TEXT NOT NULL,
+                summary_char_count INTEGER,
+                agent_id INTEGER,
+                group_id INTEGER,
+                model_id VARCHAR,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME
+            )
+        """))
+        conn.execute(text("CREATE INDEX idx_file_summary_hash ON file_summaries(content_hash)"))
+        conn.execute(text("CREATE INDEX idx_file_summary_agent ON file_summaries(agent_id)"))
+        conn.execute(text("CREATE INDEX idx_file_summary_group ON file_summaries(group_id)"))
+        conn.commit()
+
 # SQLite migration: add config column to groups table if missing
 with engine.connect() as conn:
     try:

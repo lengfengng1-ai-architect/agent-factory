@@ -72,3 +72,21 @@ class ProviderModel(Base):
     name = Column(String, nullable=False)
     context_window = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class FileSummary(Base):
+    __tablename__ = "file_summaries"
+
+    id = Column(Integer, primary_key=True)
+    content_hash = Column(String, unique=True, index=True)
+    file_name = Column(String, nullable=False)
+    file_ext = Column(String)
+    file_size = Column(Integer)
+    char_count = Column(Integer)
+    summary = Column(Text, nullable=False)
+    summary_char_count = Column(Integer)
+    agent_id = Column(Integer, nullable=True, index=True)
+    group_id = Column(Integer, nullable=True, index=True)
+    model_id = Column(String)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())

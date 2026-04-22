@@ -11,7 +11,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('agents')
 
   return (
-    <div className="min-h-screen flex">
+    <div className="min-h-screen max-h-screen flex">
       <aside className="w-60 bg-white border-r border-gray-200 flex flex-col">
         <div className="p-6 border-b border-gray-200">
           <h1 className="text-xl font-bold tracking-tight">Agent Factory</h1>

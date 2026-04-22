@@ -30,9 +30,9 @@ Agent 卡片列表，支持一键对话、编辑、删除。
 
 ### Task Kanban 看板
 
-三列拖拽看板，Task 可分配给 Agent 或 Group。
+三列拖拽看板，Task 可分配给 Agent 或 Group，支持拖拽改状态、工作流进度实时展示。
 
-<img src="assets/5.jpg" width="900">
+<img src="assets/7.png" width="900">
 
 ### Provider 管理中心
 
@@ -107,9 +107,13 @@ flowchart LR
 
 ### 📋 Task Kanban 看板
 
-- 三列看板：To Do / In Progress / Done
-- 支持拖拽改状态
+- 三列看板：To Do / In Progress / Done，支持拖拽改状态
 - Task 可分配给单个 Agent 或整个 Group
+- **智能工作流引擎**：复杂任务自动拆解为多步骤工作流，LLM 自动规划执行路径
+- **产物管理**：每个步骤生成独立产物文件，支持查看、审阅、下载
+- **人工确认（Checkpoint）**：关键节点可配置人工确认，默认自动连续执行
+- **自动执行**：有执行者的 Task 拖入 In Progress 后自动触发执行
+- **并发控制**：可配置最大同时执行任务数，超出自动排队
 
 ### 📎 多文件上传与上下文管理
 
@@ -292,6 +296,12 @@ cd frontend && npm run dev
 |------|------|
 | `GET/POST /api/tasks` | Task 列表 / 创建 |
 | `GET/PUT/DELETE /api/tasks/{id}` | 获取 / 更新 / 删除 |
+| `POST /api/tasks/{id}/execute` | 触发任务执行 |
+| `POST /api/tasks/{id}/breakdown` | LLM 自动拆解为工作流 |
+| `GET /api/tasks/{id}/workflow/progress` | 获取工作流执行进度 |
+| `POST /api/tasks/{id}/steps/{step_id}/confirm` | 确认 checkpoint 步骤 |
+| `POST /api/tasks/{id}/steps/{step_id}/retry` | 重试失败步骤 |
+| `POST /api/tasks/{id}/steps/{step_id}/skip` | 跳过步骤 |
 
 ### 文件摘要
 | 端点 | 说明 |

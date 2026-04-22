@@ -5,11 +5,21 @@ import { GripVertical } from 'lucide-react'
 interface Props {
   task: Task
   onEdit: (task: Task) => void
+  isOverlay?: boolean
 }
 
-export default function TaskCard({ task, onEdit }: Props) {
-  const { attributes, listeners, setNodeRef, transform } = useDraggable({ id: `task-${task.id}`, data: task })
-  const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 9999 } : undefined
+export default function TaskCard({ task, onEdit, isOverlay }: Props) {
+  const { attributes, listeners, setNodeRef, transform } = useDraggable({
+    id: `task-${task.id}`,
+    data: task,
+    disabled: isOverlay,
+  })
+
+  const style = isOverlay
+    ? undefined
+    : transform
+      ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 9999 }
+      : undefined
 
   const statusColor = {
     pending: 'border-gray-200',
@@ -21,7 +31,12 @@ export default function TaskCard({ task, onEdit }: Props) {
   const progress = task.progress ?? 0
 
   return (
-    <div ref={setNodeRef} style={style} className={`bg-white rounded-lg border ${statusColor} shadow-sm cursor-pointer hover:shadow-md transition-shadow overflow-hidden`} onClick={() => onEdit(task)}>
+    <div
+      ref={isOverlay ? undefined : setNodeRef}
+      style={style}
+      className={`bg-white rounded-lg border ${statusColor} shadow-sm cursor-pointer hover:shadow-md transition-shadow overflow-hidden ${isOverlay ? 'rotate-2 shadow-xl cursor-grabbing' : ''}`}
+      onClick={() => onEdit(task)}
+    >
       {/* Progress bar */}
       {task.status === 'in_progress' && (
         <div className="h-1 w-full bg-gray-100">
@@ -39,7 +54,7 @@ export default function TaskCard({ task, onEdit }: Props) {
 
       <div className="p-3">
         <div className="flex items-start gap-2">
-          <div {...listeners} {...attributes} className="mt-0.5 text-gray-400 hover:text-gray-600 cursor-grab active:cursor-grabbing">
+          <div {...(isOverlay ? {} : listeners)} {...(isOverlay ? {} : attributes)} className="mt-0.5 text-gray-400 hover:text-gray-600 cursor-grab active:cursor-grabbing">
             <GripVertical size={16} />
           </div>
           <div className="flex-1 min-w-0">

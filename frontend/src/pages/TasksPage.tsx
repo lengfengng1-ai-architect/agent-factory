@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { DndContext, PointerSensor, useSensor, useSensors, useDroppable } from '@dnd-kit/core'
-import type { DragEndEvent } from '@dnd-kit/core'
+import { DndContext, PointerSensor, useSensor, useSensors, useDroppable, DragOverlay } from '@dnd-kit/core'
+import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core'
 import { Plus, Settings } from 'lucide-react'
 import { taskApi } from '../api/client'
 import type { Task, TaskStatus } from '../types'
@@ -34,6 +34,7 @@ export default function TasksPage() {
   const [modalMode, setModalMode] = useState<ModalMode>('create')
   const [modalTask, setModalTask] = useState<Task | null>(null)
   const [showConfig, setShowConfig] = useState(false)
+  const [activeId, setActiveId] = useState<string | null>(null)
   const qc = useQueryClient()
 
   const { data: tasks = [] } = useQuery({
@@ -61,7 +62,14 @@ export default function TasksPage() {
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
+  const activeTask = activeId ? tasks.find(t => t.id === Number(String(activeId).replace('task-', ''))) : undefined
+
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveId(String(event.active.id))
+  }
+
   const handleDragEnd = (event: DragEndEvent) => {
+    setActiveId(null)
     const { active, over } = event
     if (!over) return
     const taskId = Number(String(active.id).replace('task-', ''))
@@ -112,7 +120,7 @@ export default function TasksPage() {
         </div>
       )}
 
-      <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+      <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {COLUMNS.map(col => {
             const colTasks = tasks.filter(t => t.status === col.id)
@@ -125,6 +133,9 @@ export default function TasksPage() {
             )
           })}
         </div>
+        <DragOverlay dropAnimation={null}>
+          {activeTask ? <TaskCard task={activeTask} onEdit={() => {}} isOverlay /> : null}
+        </DragOverlay>
       </DndContext>
 
       {modalOpen && (

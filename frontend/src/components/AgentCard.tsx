@@ -1,5 +1,5 @@
 import type { Agent } from '../types'
-import { Bot, MessageSquare, Pencil, Trash2, MessageCircle } from 'lucide-react'
+import { Bot, MessageSquare, Pencil, Trash2, BotMessageSquare } from 'lucide-react'
 
 interface Props {
   agent: Agent
@@ -37,7 +37,7 @@ export default function AgentCard({ agent, onEdit, onDelete, onChat, onFeishuCon
             className={`p-1.5 rounded-lg ${agent.config?.feishu?.enabled ? 'text-indigo-600 hover:bg-indigo-50' : 'text-gray-400 hover:bg-gray-100'}`}
             title="配置飞书机器人"
           >
-            <MessageCircle size={16} />
+            <BotMessageSquare size={16} />
           </button>
           <button onClick={() => onEdit(agent)} className="p-1.5 hover:bg-gray-100 rounded-lg" title="Edit">
             <Pencil size={16} />

@@ -19,6 +19,7 @@ export interface Group {
   agent_ids: number[];
   chat_type: string;
   config?: Record<string, any>;
+  file_root_dir?: string;
   created_at: string;
 }
 
@@ -34,6 +35,7 @@ export interface Task {
   result?: string;
   auto_execute?: boolean;
   progress?: number;
+  file_root_dir?: string;
   created_at: string;
   updated_at?: string;
 }

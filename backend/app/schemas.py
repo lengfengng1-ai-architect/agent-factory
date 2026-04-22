@@ -37,6 +37,7 @@ class GroupBase(BaseModel):
     chat_type: Optional[str] = "parallel"
     agent_ids: Optional[List[int]] = []
     config: Optional[Dict[str, Any]] = {}
+    file_root_dir: Optional[str] = ""
 
 
 class GroupCreate(GroupBase):
@@ -67,6 +68,7 @@ class TaskBase(BaseModel):
     result: Optional[str] = ""
     auto_execute: Optional[bool] = False
     progress: Optional[int] = 0
+    file_root_dir: Optional[str] = ""
 
 
 class TaskCreate(TaskBase):

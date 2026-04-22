@@ -28,6 +28,7 @@ class Group(Base):
     chat_type = Column(String, default="parallel")
     agent_ids = Column(JSON, default=list)
     config = Column(JSON, default=dict)
+    file_root_dir = Column(String, default="")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -43,6 +44,7 @@ class Task(Base):
     result = Column(Text, default="")
     auto_execute = Column(Boolean, default=False)
     progress = Column(Integer, default=0)
+    file_root_dir = Column(String, default="")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

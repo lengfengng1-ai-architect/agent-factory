@@ -120,6 +120,28 @@ export default function TaskModal({ task, onClose, onSave }: Props) {
             </label>
           )}
 
+          {/* Result display */}
+          {task && task.status === 'in_progress' && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <div className="text-xs font-medium text-blue-800 mb-1">执行状态</div>
+              <div className="text-sm text-blue-700">Agent 正在处理中，请稍后刷新查看结果...</div>
+              {task.progress !== undefined && task.progress > 0 && (
+                <div className="mt-2 h-1.5 bg-blue-200 rounded-full overflow-hidden">
+                  <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${task.progress}%` }} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {task && task.status === 'completed' && task.result && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">执行结果</label>
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 max-h-64 overflow-y-auto">
+                <div className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{task.result}</div>
+              </div>
+            </div>
+          )}
+
           <div className="flex justify-end gap-2 pt-2">
             <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-50">Cancel</button>
             <button onClick={handleSave} className="px-4 py-2 text-sm rounded-lg bg-gray-900 text-white hover:bg-gray-800">Save</button>

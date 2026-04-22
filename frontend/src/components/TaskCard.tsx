@@ -65,6 +65,11 @@ export default function TaskCard({ task, onEdit }: Props) {
               {task.status === 'in_progress' && (
                 <span className="text-[10px] text-blue-600 font-medium">{progress}%</span>
               )}
+              {task.status === 'completed' && task.result && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-green-50 text-green-700">
+                  有结果
+                </span>
+              )}
             </div>
           </div>
         </div>

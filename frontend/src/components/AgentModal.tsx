@@ -20,6 +20,9 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
   const [enableBrowsing, setEnableBrowsing] = useState(false)
   const [enableFileAccess, setEnableFileAccess] = useState(false)
   const [fileAccessRoot, setFileAccessRoot] = useState('./workspace')
+  const [enableFeishu, setEnableFeishu] = useState(false)
+  const [feishuAppId, setFeishuAppId] = useState('')
+  const [feishuAppSecret, setFeishuAppSecret] = useState('')
   const [model, setModel] = useState('')
   const [apiUrl, setApiUrl] = useState('')
   const [apiKey, setApiKey] = useState('')
@@ -56,6 +59,10 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
       setEnableBrowsing(!!agent.config?.enable_browsing)
       setEnableFileAccess(!!agent.config?.enable_file_access)
       setFileAccessRoot(agent.config?.file_access_root || './workspace')
+      const feishuCfg = agent.config?.feishu || {}
+      setEnableFeishu(!!feishuCfg.enabled)
+      setFeishuAppId(feishuCfg.app_id || '')
+      setFeishuAppSecret(feishuCfg.app_secret || '')
 
       if (providers) {
         const matched = providers.find(p => p.key === agent.provider) || null
@@ -73,6 +80,9 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
       setEnableBrowsing(false)
       setEnableFileAccess(false)
       setFileAccessRoot('./workspace')
+      setEnableFeishu(false)
+      setFeishuAppId('')
+      setFeishuAppSecret('')
     }
   }, [agent, providers])
 
@@ -114,10 +124,15 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
     e.preventDefault()
     let parsed: Record<string, unknown> = {}
     try { parsed = JSON.parse(config) } catch { /* ignore */ }
+    const feishuConfig = enableFeishu
+      ? { feishu: { enabled: true, app_id: feishuAppId, app_secret: feishuAppSecret } }
+      : { feishu: { enabled: false } }
+
     const toolConfig: Record<string, unknown> = {
       ...parsed,
       enable_browsing: enableBrowsing,
       enable_file_access: enableFileAccess,
+      ...feishuConfig,
     }
     if (enableFileAccess) {
       toolConfig.file_access_root = fileAccessRoot
@@ -252,6 +267,67 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
                   placeholder="./workspace"
                 />
                 <p className="mt-1 text-xs text-gray-500">Agent 只能访问此目录下的文件，留空则使用默认沙盒 workspace/&#123;agent_id&#125;/</p>
+              </div>
+            )}
+          </div>
+
+          <div className="border border-gray-200 rounded-lg p-3 space-y-3">
+            <div className="text-sm font-medium text-gray-900">飞书机器人配置</div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={enableFeishu}
+                onChange={e => setEnableFeishu(e.target.checked)}
+                className="rounded border-gray-300"
+              />
+              <span className="text-sm text-gray-700">启用飞书机器人</span>
+            </label>
+            {enableFeishu && (
+              <div className="space-y-3 pl-6">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">App ID</label>
+                  <input
+                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+                    value={feishuAppId}
+                    onChange={e => setFeishuAppId(e.target.value)}
+                    placeholder="cli_xxxxxxxxxxxx"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">App Secret</label>
+                  <input
+                    type="password"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+                    value={feishuAppSecret}
+                    onChange={e => setFeishuAppSecret(e.target.value)}
+                    placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  />
+                </div>
+                {agent && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Webhook URL</label>
+                    <div className="flex gap-1">
+                      <input
+                        readOnly
+                        className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-gray-50 text-gray-600 font-mono"
+                        value={`${window.location.origin}/api/feishu/webhook/${agent.id}`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(`${window.location.origin}/api/feishu/webhook/${agent.id}`)
+                          alert('已复制到剪贴板')
+                        }}
+                        className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-lg border border-gray-300"
+                      >
+                        复制
+                      </button>
+                    </div>
+                    <p className="mt-1 text-[10px] text-gray-400">
+                      将此 URL 粘贴到飞书开放平台 → 事件订阅 → 请求地址配置中
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>

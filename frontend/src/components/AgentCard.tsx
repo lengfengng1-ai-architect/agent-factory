@@ -19,6 +19,12 @@ export default function AgentCard({ agent, onEdit, onDelete, onChat }: Props) {
           <div>
             <h3 className="font-semibold text-gray-900">{agent.name}</h3>
             <p className="text-sm text-gray-500 line-clamp-1">{agent.description}</p>
+            {agent.config?.feishu?.enabled && (
+              <span className="inline-flex items-center gap-1 text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+                飞书
+              </span>
+            )}
           </div>
         </div>
         <div className="flex gap-1">

@@ -172,24 +172,48 @@ async def execute_step(step: models.WorkflowStep, task: models.Task, db: Session
     llm = _create_llm_for_agent(agent, provider)
     tools = get_agent_tools(agent, override_root_dir=task.file_root_dir or None)
     
-    # Collect results from completed dependency steps
+    # Collect FULL artifact content from completed dependency steps
     dep_results = []
     if step.depends_on:
         dep_steps = db.query(models.WorkflowStep).filter(
             models.WorkflowStep.id.in_(step.depends_on)
         ).all()
         for ds in dep_steps:
-            if ds.result:
-                dep_results.append(f"【{ds.name}】\n{ds.result[:500]}")
+            content = ""
+            # Prefer reading full artifact file over truncated result
+            if ds.artifact_path and os.path.exists(ds.artifact_path):
+                try:
+                    with open(ds.artifact_path, "r", encoding="utf-8") as f:
+                        content = f.read()
+                except Exception:
+                    content = ds.result or ""
+            else:
+                content = ds.result or ""
+            if content:
+                # Strip the "# Step Name" header we added when saving
+                lines = content.split("\n")
+                if lines and lines[0].startswith("# "):
+                    content = "\n".join(lines[1:]).strip()
+                dep_results.append(f"--- {ds.name} ---\n{content[:3000]}")
     
     context = ""
     if dep_results:
-        context = "前置步骤结果:\n" + "\n\n".join(dep_results) + "\n\n"
+        context = "\n\n".join(dep_results) + "\n\n"
+    
+    is_writing_step = any(k in step.name for k in ("撰写", "写作", "完成", "起草", "定稿"))
+    
+    output_instruction = """你的输出必须直接是文章的正文内容。
+要求：
+1. 使用流畅、专业的散文体，就像一篇正式发表的科技评论文章
+2. 不要添加步骤标题（如"【当前步骤执行结果】"）、元数据标记或分析框架说明
+3. 不要重复前置步骤已经写过的内容，只写本步骤负责的新内容
+4. 保持与前置步骤一致的写作风格和术语使用""" if is_writing_step else """请认真执行上述指令，输出简洁、有针对性的结果。
+如果是分析/规划类任务，输出核心要点即可，不要写成大段文章。"""
     
     prompt = f"""{context}【当前步骤】{step.name}
 【执行指令】{step.description}
 
-请认真执行上述指令。如果有前置步骤结果，请在此基础上继续。"""
+{output_instruction}"""
 
     messages = [
         SystemMessage(content=agent.system_prompt or "You are a helpful assistant."),
@@ -307,19 +331,98 @@ async def execute_workflow(task_id: int):
         db.close()
 
 
+def _clean_step_content(content: str) -> str:
+    """Remove meta markers and step headers from LLM output."""
+    lines = content.split("\n")
+    # Remove first line if it's a markdown header we added
+    if lines and lines[0].startswith("# "):
+        lines = lines[1:]
+    
+    result_lines = []
+    skip_patterns = [
+        "【当前步骤执行结果】",
+        "---",
+    ]
+    in_skip = False
+    for line in lines:
+        stripped = line.strip()
+        # Skip decorative separator lines
+        if stripped == "---" or stripped.startswith("--- ") and stripped.endswith(" ---"):
+            continue
+        # Skip meta markers
+        if any(p in stripped for p in skip_patterns):
+            continue
+        result_lines.append(line)
+    
+    return "\n".join(result_lines).strip()
+
+
 def _aggregate_workflow_result(task: models.Task, steps: list, db: Session):
-    """Merge all step results/artifacts into task.result and write final_artifact.md."""
+    """Merge writing-step artifacts into a coherent final article."""
     import os
+    import re
     
-    # Build aggregated result
-    lines = [f"# {task.title}\n", f"\n> 任务描述：{task.description or ''}\n"]
+    # Identify writing steps: steps that actually produce article body text
+    writing_keywords = ("撰写", "写作", "起草")
+    non_writing_keywords = (
+        "搜集", "研究", "分析", "整理", "构思", "大纲", "头脑", "主题", "范围",
+        "通读", "润色", "检查", "审阅", "深化", "论证", "强化", "要点",
+        "格式", "字数", "结构", "定稿"
+    )
+    
+    writing_steps = []
     for step in sorted(steps, key=lambda s: s.order_index):
-        if step.status == "completed" and step.result:
-            lines.append(f"\n## {step.name}\n")
-            lines.append(step.result)
-            lines.append("\n")
+        if step.status != "completed":
+            continue
+        name = step.name
+        # Include if it has writing keyword and no non-writing keyword
+        if any(k in name for k in writing_keywords):
+            writing_steps.append(step)
+        elif not any(k in name for k in non_writing_keywords):
+            # Fallback: include steps that don't match either category
+            writing_steps.append(step)
     
-    task.result = "\n".join(lines)
+    # Build article from artifact files (full content, not truncated result)
+    article_parts = []
+    for step in writing_steps:
+        content = ""
+        if step.artifact_path and os.path.exists(step.artifact_path):
+            try:
+                with open(step.artifact_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+            except Exception:
+                content = step.result or ""
+        else:
+            content = step.result or ""
+        
+        cleaned = _clean_step_content(content)
+        if cleaned:
+            article_parts.append(cleaned)
+    
+    # Deduplicate: remove paragraphs that appear in multiple steps
+    seen_paragraphs = set()
+    deduped_parts = []
+    for part in article_parts:
+        paragraphs = part.split("\n\n")
+        unique_paras = []
+        for para in paragraphs:
+            # Use first 100 chars as fingerprint for dedup
+            fingerprint = para.strip()[:100]
+            if fingerprint and fingerprint not in seen_paragraphs:
+                seen_paragraphs.add(fingerprint)
+                unique_paras.append(para)
+        if unique_paras:
+            deduped_parts.append("\n\n".join(unique_paras))
+    
+    # Assemble final article
+    article_body = "\n\n".join(deduped_parts)
+    
+    # Build title and description header
+    header = f"# {task.title}\n\n"
+    if task.description:
+        header += f"{task.description}\n\n"
+    
+    task.result = header + article_body
     
     # Write final_artifact.md
     task_dir = os.path.join(os.path.dirname(__file__), "workspace", "tasks", str(task.id))

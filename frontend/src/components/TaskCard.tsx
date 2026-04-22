@@ -1,14 +1,16 @@
 import { useDraggable } from '@dnd-kit/core'
 import type { Task } from '../types'
-import { GripVertical } from 'lucide-react'
+import { GripVertical, Pencil } from 'lucide-react'
 
 interface Props {
   task: Task
+  onSelect: (task: Task) => void
   onEdit: (task: Task) => void
+  isSelected?: boolean
   isOverlay?: boolean
 }
 
-export default function TaskCard({ task, onEdit, isOverlay }: Props) {
+export default function TaskCard({ task, onSelect, onEdit, isSelected, isOverlay }: Props) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id: `task-${task.id}`,
     data: task,
@@ -34,8 +36,8 @@ export default function TaskCard({ task, onEdit, isOverlay }: Props) {
     <div
       ref={isOverlay ? undefined : setNodeRef}
       style={style}
-      className={`bg-white rounded-lg border ${statusColor} shadow-sm cursor-pointer hover:shadow-md transition-shadow overflow-hidden ${isOverlay ? 'rotate-2 shadow-xl cursor-grabbing' : ''}`}
-      onClick={() => onEdit(task)}
+      className={`group bg-white rounded-lg border ${isSelected ? 'border-indigo-400 ring-2 ring-indigo-100' : statusColor} shadow-sm cursor-pointer hover:shadow-md transition-shadow overflow-hidden ${isOverlay ? 'rotate-2 shadow-xl cursor-grabbing' : ''}`}
+      onClick={() => onSelect(task)}
     >
       {/* Progress bar */}
       {task.status === 'in_progress' && (
@@ -58,7 +60,19 @@ export default function TaskCard({ task, onEdit, isOverlay }: Props) {
             <GripVertical size={16} />
           </div>
           <div className="flex-1 min-w-0">
-            <h4 className="text-sm font-medium text-gray-900 truncate">{task.title}</h4>
+            <div className="flex items-start justify-between gap-1">
+              <h4 className="text-sm font-medium text-gray-900 truncate">{task.title}</h4>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onEdit(task)
+                }}
+                className="shrink-0 text-gray-400 hover:text-gray-600 p-0.5 rounded hover:bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity"
+                title="编辑"
+              >
+                <Pencil size={12} />
+              </button>
+            </div>
             <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{task.description}</p>
 
             {/* Workflow progress */}

@@ -7,6 +7,7 @@ import { taskApi } from '../api/client'
 import type { Task, TaskStatus } from '../types'
 import TaskCard from '../components/TaskCard'
 import TaskModal from '../components/TaskModal'
+import TaskDetailPanel from '../components/TaskDetailPanel'
 
 const COLUMNS: { id: TaskStatus; title: string; bg: string }[] = [
   { id: 'pending', title: 'To Do', bg: 'bg-gray-50' },
@@ -17,7 +18,7 @@ const COLUMNS: { id: TaskStatus; title: string; bg: string }[] = [
 function Column({ id, title, bg, children, count }: { id: string; title: string; bg: string; children: React.ReactNode; count: number }) {
   const { setNodeRef, isOver } = useDroppable({ id })
   return (
-    <div ref={setNodeRef} className={`${bg} rounded-xl border ${isOver ? 'border-blue-400 ring-2 ring-blue-100' : 'border-gray-200'} p-3 min-h-[200px] h-[calc(100vh-160px)] flex flex-col`}>
+    <div ref={setNodeRef} className={`${bg} rounded-xl border ${isOver ? 'border-blue-400 ring-2 ring-blue-100' : 'border-gray-200'} p-3 min-h-[200px] h-full flex flex-col`}>
       <div className="flex items-center justify-between mb-3 px-1 shrink-0">
         <h3 className="text-sm font-semibold text-gray-700">{title}</h3>
         <span className="text-xs bg-white text-gray-500 px-2 py-0.5 rounded-full border border-gray-200">{count}</span>
@@ -33,6 +34,7 @@ export default function TasksPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [modalMode, setModalMode] = useState<ModalMode>('create')
   const [modalTask, setModalTask] = useState<Task | null>(null)
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [showConfig, setShowConfig] = useState(false)
   const [activeId, setActiveId] = useState<string | null>(null)
   const qc = useQueryClient()
@@ -97,7 +99,7 @@ export default function TasksPage() {
   }
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden">
+    <div className="h-full flex flex-col overflow-hidden">
       <div className="flex items-center justify-between mb-6 shrink-0">
         <h2 className="text-2xl font-bold">Tasks</h2>
         <div className="flex items-center gap-2">
@@ -129,23 +131,41 @@ export default function TasksPage() {
         </div>
       )}
 
-      <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {COLUMNS.map(col => {
-            const colTasks = tasks.filter(t => t.status === col.id)
-            return (
-              <Column key={col.id} id={col.id} title={col.title} bg={col.bg} count={colTasks.length}>
-                {colTasks.map(task => (
-                  <TaskCard key={task.id} task={task} onEdit={t => { setModalTask(t); setModalMode('view'); setModalOpen(true) }} />
-                ))}
-              </Column>
-            )
-          })}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left kanban */}
+        <div className="flex-1 overflow-hidden">
+          <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 h-full">
+              {COLUMNS.map(col => {
+                const colTasks = tasks.filter(t => t.status === col.id)
+                return (
+                  <Column key={col.id} id={col.id} title={col.title} bg={col.bg} count={colTasks.length}>
+                    {colTasks.map(task => (
+                      <TaskCard
+                        key={task.id}
+                        task={task}
+                        isSelected={selectedTask?.id === task.id}
+                        onSelect={t => setSelectedTask(t)}
+                        onEdit={t => { setModalTask(t); setModalMode('view'); setModalOpen(true) }}
+                      />
+                    ))}
+                  </Column>
+                )
+              })}
+            </div>
+            <DragOverlay dropAnimation={null}>
+              {activeTask ? <TaskCard task={activeTask} onSelect={() => {}} onEdit={() => {}} isOverlay /> : null}
+            </DragOverlay>
+          </DndContext>
         </div>
-        <DragOverlay dropAnimation={null}>
-          {activeTask ? <TaskCard task={activeTask} onEdit={() => {}} isOverlay /> : null}
-        </DragOverlay>
-      </DndContext>
+
+        {/* Right detail panel */}
+        {selectedTask && (
+          <div className="w-[420px] border-l border-gray-200 bg-white flex flex-col overflow-hidden z-40 shrink-0">
+            <TaskDetailPanel task={selectedTask} onClose={() => setSelectedTask(null)} />
+          </div>
+        )}
+      </div>
 
       {modalOpen && (
         <TaskModal

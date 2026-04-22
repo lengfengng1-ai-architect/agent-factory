@@ -2,11 +2,9 @@ import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { Task, TaskStatus } from '../types'
 import { agentApi, groupApi, taskApi, fileApi } from '../api/client'
-import WorkflowStepList from './WorkflowStepList'
 import ArtifactViewer from './ArtifactViewer'
-import { Eye, Pencil, FolderOpen } from 'lucide-react'
+import { Pencil, FolderOpen } from 'lucide-react'
 
-type Tab = 'overview' | 'workflow'
 type ModalMode = 'view' | 'edit' | 'create'
 
 interface Props {
@@ -30,9 +28,7 @@ export default function TaskModal({ task, mode, onClose, onSave, onSwitchEdit }:
   const isView = mode === 'view'
   const isCreate = mode === 'create'
 
-  // Tab order: workflow first if task has workflow
-  const defaultTab: Tab = task?.workflow_plan ? 'workflow' : 'overview'
-  const [activeTab, setActiveTab] = useState<Tab>(defaultTab)
+  const [activeTab, setActiveTab] = useState<'overview'>('overview')
 
   // Form states
   const [title, setTitle] = useState('')
@@ -55,11 +51,6 @@ export default function TaskModal({ task, mode, onClose, onSave, onSwitchEdit }:
     queryFn: () => taskApi.getWorkflowProgress(task!.id),
     enabled: !!task && activeTab === 'workflow',
     refetchInterval: 5000,
-  })
-
-  const breakdown = useMutation({
-    mutationFn: () => taskApi.breakdown(task!.id, {}),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['task_workflow', task?.id] }),
   })
 
   const updateTaskConfig = useMutation({
@@ -91,7 +82,6 @@ export default function TaskModal({ task, mode, onClose, onSave, onSwitchEdit }:
       setFileRootDir('')
       setManualConfirm(false)
     }
-    setActiveTab(task?.workflow_plan ? 'workflow' : 'overview')
   }, [task])
 
   const candidates = assigneeType === 'agent' ? agents : groups
@@ -112,7 +102,6 @@ export default function TaskModal({ task, mode, onClose, onSave, onSwitchEdit }:
   }
 
   const hasWorkflow = !!task?.workflow_plan || (workflowData?.steps && workflowData.steps.length > 0)
-  const workflowCompleted = workflowData?.workflow_status === 'completed'
 
   // Global checkpoint toggle handler
   const handleToggleCheckpoints = (checked: boolean) => {
@@ -130,18 +119,7 @@ export default function TaskModal({ task, mode, onClose, onSave, onSwitchEdit }:
 
   const checkpointsEnabled = manualConfirm
 
-  // Tab labels based on workflow presence
-  const tabConfig: { id: Tab; label: string }[] = isCreate
-    ? [{ id: 'overview', label: '概览' }]
-    : hasWorkflow
-      ? [
-          { id: 'workflow', label: '工作流' },
-          { id: 'overview', label: '概览' },
-        ]
-      : [
-          { id: 'overview', label: '概览' },
-          { id: 'workflow', label: '工作流' },
-        ]
+  const tabConfig = [{ id: 'overview' as const, label: '概览' }]
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={onClose}>
@@ -313,58 +291,7 @@ export default function TaskModal({ task, mode, onClose, onSave, onSwitchEdit }:
           </div>
         )}
 
-        {activeTab === 'workflow' && (
-          <div className="space-y-4">
-            {!task && (
-              <div className="text-center text-gray-400 text-sm py-8">保存任务后可查看工作流</div>
-            )}
-            {task && !hasWorkflow && !isView && (
-              <div className="text-center py-8 space-y-3">
-                <p className="text-sm text-gray-500">当前任务尚未拆解为工作流</p>
-                <button
-                  onClick={() => breakdown.mutate()}
-                  disabled={breakdown.isPending}
-                  className="px-4 py-2 text-sm rounded-lg bg-gray-900 text-white hover:bg-gray-800 disabled:opacity-50"
-                >
-                  {breakdown.isPending ? '拆解中...' : '自动拆解为工作流'}
-                </button>
-              </div>
-            )}
-            {task && !hasWorkflow && isView && (
-              <div className="text-center text-gray-400 text-sm py-8">当前任务尚未拆解为工作流</div>
-            )}
-            {task && hasWorkflow && workflowData && (
-              <>
-                <div className="flex items-center justify-between">
-                  <div className="text-sm text-gray-700">
-                    进度: <span className="font-medium">{workflowData.completed_steps}/{workflowData.total_steps}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setShowArtifacts(true)}
-                      className="flex items-center gap-1 text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
-                    >
-                      <Eye size={12} /> 查看产物
-                    </button>
-                    <div className="text-xs text-gray-500">
-                      {workflowData.workflow_status === 'running' && '执行中'}
-                      {workflowData.workflow_status === 'completed' && '已完成'}
-                      {workflowData.workflow_status === 'failed' && '失败'}
-                      {workflowData.workflow_status === 'waiting_feedback' && '待确认'}
-                    </div>
-                  </div>
-                </div>
-                <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-indigo-500 rounded-full transition-all"
-                    style={{ width: `${workflowData.progress}%` }}
-                  />
-                </div>
-                <WorkflowStepList taskId={task.id} steps={workflowData.steps} />
-              </>
-            )}
-          </div>
-        )}
+
       </div>
       {showArtifacts && artifactsData && (
         <ArtifactViewer artifacts={artifactsData.artifacts} onClose={() => setShowArtifacts(false)} />

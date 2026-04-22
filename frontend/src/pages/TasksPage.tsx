@@ -17,12 +17,12 @@ const COLUMNS: { id: TaskStatus; title: string; bg: string }[] = [
 function Column({ id, title, bg, children, count }: { id: string; title: string; bg: string; children: React.ReactNode; count: number }) {
   const { setNodeRef, isOver } = useDroppable({ id })
   return (
-    <div ref={setNodeRef} className={`${bg} rounded-xl border ${isOver ? 'border-blue-400 ring-2 ring-blue-100' : 'border-gray-200'} p-3 min-h-[300px]`}>
-      <div className="flex items-center justify-between mb-3 px-1">
+    <div ref={setNodeRef} className={`${bg} rounded-xl border ${isOver ? 'border-blue-400 ring-2 ring-blue-100' : 'border-gray-200'} p-3 min-h-[200px] h-[calc(100vh-160px)] flex flex-col`}>
+      <div className="flex items-center justify-between mb-3 px-1 shrink-0">
         <h3 className="text-sm font-semibold text-gray-700">{title}</h3>
         <span className="text-xs bg-white text-gray-500 px-2 py-0.5 rounded-full border border-gray-200">{count}</span>
       </div>
-      <div className="space-y-2">{children}</div>
+      <div className="space-y-2 overflow-y-auto flex-1 pr-1">{children}</div>
     </div>
   )
 }
@@ -80,8 +80,8 @@ export default function TasksPage() {
   }
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
+    <div className="h-screen flex flex-col overflow-hidden">
+      <div className="flex items-center justify-between mb-6 shrink-0">
         <h2 className="text-2xl font-bold">Tasks</h2>
         <div className="flex items-center gap-2">
           <button

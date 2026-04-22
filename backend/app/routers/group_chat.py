@@ -9,7 +9,7 @@ from app import models
 from app import redis_client
 from app.file_utils import extract_text, format_files_for_prompt
 from app.context_manager import build_messages_with_budget, get_model_context_window
-from app.summarizer import generate_summary, maybe_use_summary
+from app.summarizer import generate_summary, maybe_use_summary, get_summaries_for_group
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 import json
@@ -151,6 +151,16 @@ async def group_chat(group_id: int, payload: dict, db: Session = Depends(get_db)
 
     # Preload file contents (with async summary generation)
     file_contents = await _load_group_file_contents(group_id, file_ids, file_mode, db)
+
+    # Load historical summaries for this group (up to 5 most recent)
+    historical_summaries = get_summaries_for_group(group.id)
+    if historical_summaries:
+        for hs in historical_summaries[:5]:
+            file_contents.append({
+                "name": hs["file_name"] + "（历史摘要）",
+                "content": hs["summary"],
+                "is_summary": True,
+            })
 
     if chat_type == "brainstorm":
         return _brainstorm_chat(group, user_message, db, file_contents)

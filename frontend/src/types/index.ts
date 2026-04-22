@@ -68,3 +68,19 @@ export interface ChatFile {
   type: string;
   timestamp: string;
 }
+
+export interface FileSummary {
+  id: number;
+  content_hash: string;
+  file_name: string;
+  file_ext: string;
+  file_size: number;
+  char_count: number;
+  summary: string;
+  summary_char_count: number;
+  agent_id: number | null;
+  group_id: number | null;
+  model_id: string;
+  created_at: string;
+  updated_at: string;
+}

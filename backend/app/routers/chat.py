@@ -11,7 +11,7 @@ from app.redis_client import (
 )
 from app.file_utils import extract_text
 from app.context_manager import build_messages_with_budget, get_model_context_window
-from app.summarizer import generate_summary, maybe_use_summary
+from app.summarizer import generate_summary, maybe_use_summary, get_summaries_for_agent
 from app.tools import get_agent_tools
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
@@ -120,6 +120,16 @@ async def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(ge
                     pass  # fallback to full/truncated content
 
             file_contents.append({"name": name, "content": content, "is_summary": is_summary})
+
+    # Load historical summaries for this agent (up to 5 most recent)
+    historical_summaries = get_summaries_for_agent(agent_id)
+    if historical_summaries:
+        for hs in historical_summaries[:5]:
+            file_contents.append({
+                "name": hs["file_name"] + "（历史摘要）",
+                "content": hs["summary"],
+                "is_summary": True,
+            })
 
     # Get context window and build budget-constrained messages
     context_window = get_model_context_window(db, agent)

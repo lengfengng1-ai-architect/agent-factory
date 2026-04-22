@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { Task, TaskStatus } from '../types'
-import { agentApi, groupApi, taskApi } from '../api/client'
+import { agentApi, groupApi, taskApi, fileApi } from '../api/client'
 import WorkflowStepList from './WorkflowStepList'
+import ArtifactViewer from './ArtifactViewer'
 
 type Tab = 'overview' | 'workflow'
 
@@ -36,6 +37,8 @@ export default function TaskModal({ task, onClose, onSave }: Props) {
   const [assigneeId, setAssigneeId] = useState<number | null>(null)
   const [autoExecute, setAutoExecute] = useState(false)
   const [fileRootDir, setFileRootDir] = useState('')
+  const [showArtifacts, setShowArtifacts] = useState(false)
+  const [requireFirstCheckpoint, setRequireFirstCheckpoint] = useState(true)
 
   const qc = useQueryClient()
   const { data: agents = [] } = useQuery({ queryKey: ['agents'], queryFn: agentApi.list })
@@ -49,8 +52,14 @@ export default function TaskModal({ task, onClose, onSave }: Props) {
   })
 
   const breakdown = useMutation({
-    mutationFn: () => taskApi.breakdown(task!.id),
+    mutationFn: () => taskApi.breakdown(task!.id, { require_first_checkpoint: requireFirstCheckpoint }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['task_workflow', task?.id] }),
+  })
+
+  const { data: artifactsData } = useQuery({
+    queryKey: ['task_artifacts', task?.id],
+    queryFn: () => fileApi.listTaskArtifacts(task!.id),
+    enabled: !!task && showArtifacts,
   })
 
   useEffect(() => {
@@ -224,8 +233,17 @@ export default function TaskModal({ task, onClose, onSave }: Props) {
               <div className="text-center text-gray-400 text-sm py-8">保存任务后可查看工作流</div>
             )}
             {task && !hasWorkflow && (
-              <div className="text-center py-8">
-                <p className="text-sm text-gray-500 mb-4">当前任务尚未拆解为工作流</p>
+              <div className="text-center py-8 space-y-3">
+                <p className="text-sm text-gray-500">当前任务尚未拆解为工作流</p>
+                <label className="flex items-center justify-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={requireFirstCheckpoint}
+                    onChange={e => setRequireFirstCheckpoint(e.target.checked)}
+                    className="rounded border-gray-300"
+                  />
+                  <span className="text-sm text-gray-700">第一步需要人工确认</span>
+                </label>
                 <button
                   onClick={() => breakdown.mutate()}
                   disabled={breakdown.isPending}
@@ -241,11 +259,19 @@ export default function TaskModal({ task, onClose, onSave }: Props) {
                   <div className="text-sm text-gray-700">
                     进度: <span className="font-medium">{workflowData.completed_steps}/{workflowData.total_steps}</span>
                   </div>
-                  <div className="text-xs text-gray-500">
-                    {workflowData.workflow_status === 'running' && '执行中'}
-                    {workflowData.workflow_status === 'completed' && '已完成'}
-                    {workflowData.workflow_status === 'failed' && '失败'}
-                    {workflowData.workflow_status === 'waiting_feedback' && '待确认'}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowArtifacts(true)}
+                      className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+                    >
+                      查看产物
+                    </button>
+                    <div className="text-xs text-gray-500">
+                      {workflowData.workflow_status === 'running' && '执行中'}
+                      {workflowData.workflow_status === 'completed' && '已完成'}
+                      {workflowData.workflow_status === 'failed' && '失败'}
+                      {workflowData.workflow_status === 'waiting_feedback' && '待确认'}
+                    </div>
                   </div>
                 </div>
                 <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
@@ -260,6 +286,9 @@ export default function TaskModal({ task, onClose, onSave }: Props) {
           </div>
         )}
       </div>
+      {showArtifacts && artifactsData && (
+        <ArtifactViewer artifacts={artifactsData.artifacts} onClose={() => setShowArtifacts(false)} />
+      )}
     </div>
   )
 }

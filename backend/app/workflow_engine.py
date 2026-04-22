@@ -20,7 +20,7 @@ DEFAULT_RETRY_COUNT = 3
 
 # ── Breakdown ──
 
-async def breakdown_task(task: models.Task, db: Session):
+async def breakdown_task(task: models.Task, db: Session, require_first_checkpoint: bool = True):
     """Use LLM to break down a task into workflow steps."""
     agent = None
     if task.assignee_type == "agent" and task.assignee_id:
@@ -111,12 +111,20 @@ async def breakdown_task(task: models.Task, db: Session):
     
     db.commit()
     
+    # Apply first-step checkpoint override
+    if not require_first_checkpoint and created_steps:
+        first_step = min(created_steps, key=lambda s: s.order_index)
+        if first_step.checkpoint:
+            first_step.checkpoint = False
+            db.commit()
+    
     # Update task
     task.workflow_plan = {"steps_count": len(created_steps), "breakdown_at": datetime.now(timezone.utc).isoformat()}
     task.workflow_status = "idle"
     task.workflow_config = {
         "timeout_minutes": DEFAULT_TIMEOUT_MINUTES,
         "retry_count": DEFAULT_RETRY_COUNT,
+        "require_first_checkpoint": require_first_checkpoint,
     }
     db.commit()
     

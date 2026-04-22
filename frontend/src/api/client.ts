@@ -35,8 +35,8 @@ export const taskApi = {
   setConcurrency: (n: number) => api.put('/tasks/concurrency', { max_concurrent_tasks: n }).then(r => r.data),
   getSteps: (id: number) =>
     api.get<{ steps: WorkflowStep[] }>(`/tasks/${id}/steps`).then(r => r.data),
-  breakdown: (id: number) =>
-    api.post<{ task_id: number; steps_count: number; steps: { id: number; name: string; order_index: number; checkpoint: boolean }[] }>(`/tasks/${id}/breakdown`).then(r => r.data),
+  breakdown: (id: number, opts?: { require_first_checkpoint?: boolean }) =>
+    api.post<{ task_id: number; steps_count: number; steps: { id: number; name: string; order_index: number; checkpoint: boolean }[] }>(`/tasks/${id}/breakdown`, opts || {}).then(r => r.data),
   getWorkflowProgress: (id: number) =>
     api.get<{ task_id: number; workflow_status: string; progress: number; total_steps: number; completed_steps: number; waiting_steps: number; failed_steps: number; running_steps: number; steps: WorkflowStep[] }>(`/tasks/${id}/workflow/progress`).then(r => r.data),
   confirmStep: (taskId: number, stepId: number) =>

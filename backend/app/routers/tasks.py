@@ -180,13 +180,17 @@ def delete_task_step(task_id: int, step_id: int, db: Session = Depends(get_db)):
 # ── Task Breakdown ──
 
 @router.post("/{task_id}/breakdown")
-async def breakdown_task(task_id: int, db: Session = Depends(get_db)):
+async def breakdown_task(task_id: int, payload: dict = None, db: Session = Depends(get_db)):
     """Break down a task into workflow steps using LLM."""
     task = db.query(models.Task).filter(models.Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    steps = await wf_breakdown(task, db)
+    require_first_checkpoint = True
+    if payload and "require_first_checkpoint" in payload:
+        require_first_checkpoint = bool(payload["require_first_checkpoint"])
+    
+    steps = await wf_breakdown(task, db, require_first_checkpoint=require_first_checkpoint)
     return {
         "task_id": task_id,
         "steps_count": len(steps),

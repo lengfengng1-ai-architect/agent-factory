@@ -141,6 +141,46 @@ async def _execute_with_group(task: models.Task, db: Session):
     return "\n\n".join([f"{er['agent_name']}: {er['response']}" for er in expert_responses])
 
 
+async def _should_use_workflow(task: models.Task, db: Session) -> bool:
+    """Use LLM to decide if a task needs multi-step workflow."""
+    agent = db.query(models.Agent).filter(models.Agent.id == task.assignee_id).first()
+    if not agent:
+        return False
+
+    provider = db.query(models.Provider).filter(
+        models.Provider.key == (agent.provider or "kimi").lower()
+    ).first()
+    if not provider or not provider.is_enabled:
+        return False
+
+    llm = _create_llm_for_agent(agent, provider)
+
+    prompt = f"""请判断以下任务是否需要拆解为多步骤工作流来执行。
+
+【任务标题】{task.title}
+【任务描述】{task.description or "（无）"}
+
+判断标准：
+- 如果任务简单明确，可以一次性直接完成（如：简单问答、翻译、写一段短文字、总结等），回答 false
+- 如果任务复杂，需要分阶段、多步骤规划执行（如：写文章需要大纲→草稿→润色、开发项目需要调研→设计→编码→测试、复杂分析需要多轮推理等），回答 true
+
+只回答 true 或 false，不要其他解释。"""
+
+    messages = [
+        SystemMessage(content="You are a task complexity evaluator. Reply only with 'true' or 'false'."),
+        HumanMessage(content=prompt),
+    ]
+
+    try:
+        response = await llm.ainvoke(messages)
+        content = response.content.strip().lower()
+        # Accept various positive forms
+        return content.startswith(("true", "是", "需", "yes", "y"))
+    except Exception:
+        # Default to direct execution on error to avoid blocking
+        return False
+
+
 async def _run_task(task_id: int):
     """Run a single task with semaphore-controlled concurrency."""
     async with _semaphore:
@@ -160,6 +200,21 @@ async def _run_task(task_id: int):
                 from app.workflow_engine import execute_workflow
                 await execute_workflow(task_id)
                 return
+
+            # Auto-decide: simple task = direct execution, complex task = workflow
+            if not task.workflow_plan:
+                needs_workflow = await _should_use_workflow(task, db)
+                if needs_workflow:
+                    from app.workflow_engine import breakdown_task as wf_breakdown, execute_workflow
+                    try:
+                        await wf_breakdown(task, db)
+                        db.refresh(task)
+                        await execute_workflow(task_id)
+                        return
+                    except Exception as e:
+                        # Fallback to direct execution if breakdown fails
+                        task.result = f"Workflow breakdown failed: {e}. Falling back to direct execution.\n\n"
+                        db.commit()
 
             # Legacy single-shot mode
             if task.assignee_type == "agent":

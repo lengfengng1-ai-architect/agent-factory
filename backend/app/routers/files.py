@@ -185,7 +185,7 @@ def delete_agent_file(agent_id: int, file_id: str, db: Session = Depends(get_db)
 def list_task_artifacts(task_id: int):
     """List artifact files for a workflow task."""
     import os
-    task_dir = os.path.join(os.path.dirname(__file__), "..", "..", "workspace", "tasks", str(task_id))
+    task_dir = os.path.join(os.path.dirname(__file__), "..", "workspace", "tasks", str(task_id))
     if not os.path.exists(task_dir):
         return {"artifacts": []}
     
@@ -207,7 +207,7 @@ def read_artifact(path: str):
     import os
     # Security: ensure path is within workspace
     abs_path = os.path.abspath(path)
-    workspace_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "workspace"))
+    workspace_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspace"))
     if not abs_path.startswith(workspace_root):
         raise HTTPException(status_code=403, detail="Access denied")
     if not os.path.exists(abs_path) or not os.path.isfile(abs_path):

@@ -4,11 +4,14 @@ import type { Task, TaskStatus } from '../types'
 import { agentApi, groupApi, taskApi, fileApi } from '../api/client'
 import WorkflowStepList from './WorkflowStepList'
 import ArtifactViewer from './ArtifactViewer'
+import { Eye, Pencil, FolderOpen } from 'lucide-react'
 
 type Tab = 'overview' | 'workflow'
+type ModalMode = 'view' | 'edit' | 'create'
 
 interface Props {
   task?: Task | null
+  mode: ModalMode
   onClose: () => void
   onSave: (data: {
     title: string;
@@ -19,17 +22,18 @@ interface Props {
     auto_execute: boolean;
     file_root_dir: string;
   }) => void
+  onSwitchEdit?: () => void
 }
 
-export default function TaskModal({ task, onClose, onSave }: Props) {
-  const [activeTab, setActiveTab] = useState<Tab>('overview')
+export default function TaskModal({ task, mode, onClose, onSave, onSwitchEdit }: Props) {
+  const isView = mode === 'view'
+  const isCreate = mode === 'create'
 
-  // Auto-switch to workflow tab when waiting for feedback
-  useEffect(() => {
-    if (task?.workflow_status === 'waiting_feedback') {
-      setActiveTab('workflow')
-    }
-  }, [task?.workflow_status])
+  // Tab order: workflow first if task has workflow
+  const defaultTab: Tab = task?.workflow_plan ? 'workflow' : 'overview'
+  const [activeTab, setActiveTab] = useState<Tab>(defaultTab)
+
+  // Form states
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [status, setStatus] = useState<TaskStatus>('pending')
@@ -37,8 +41,10 @@ export default function TaskModal({ task, onClose, onSave }: Props) {
   const [assigneeId, setAssigneeId] = useState<number | null>(null)
   const [autoExecute, setAutoExecute] = useState(false)
   const [fileRootDir, setFileRootDir] = useState('')
-  const [showArtifacts, setShowArtifacts] = useState(false)
   const [requireFirstCheckpoint, setRequireFirstCheckpoint] = useState(true)
+
+  // Artifacts viewer
+  const [showArtifacts, setShowArtifacts] = useState(false)
 
   const qc = useQueryClient()
   const { data: agents = [] } = useQuery({ queryKey: ['agents'], queryFn: agentApi.list })
@@ -54,6 +60,11 @@ export default function TaskModal({ task, onClose, onSave }: Props) {
   const breakdown = useMutation({
     mutationFn: () => taskApi.breakdown(task!.id, { require_first_checkpoint: requireFirstCheckpoint }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['task_workflow', task?.id] }),
+  })
+
+  const updateTaskConfig = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Partial<Task> }) => taskApi.update(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
   })
 
   const { data: artifactsData } = useQuery({
@@ -80,7 +91,7 @@ export default function TaskModal({ task, onClose, onSave }: Props) {
       setAutoExecute(false)
       setFileRootDir('')
     }
-    setActiveTab('overview')
+    setActiveTab(task?.workflow_plan ? 'workflow' : 'overview')
   }, [task])
 
   const candidates = assigneeType === 'agent' ? agents : groups
@@ -100,72 +111,118 @@ export default function TaskModal({ task, onClose, onSave }: Props) {
   }
 
   const hasWorkflow = !!task?.workflow_plan || (workflowData?.steps && workflowData.steps.length > 0)
+  const workflowCompleted = workflowData?.workflow_status === 'completed'
+
+  // Global checkpoint toggle handler
+  const handleToggleCheckpoints = (checked: boolean) => {
+    if (!task) return
+    const cfg = (task as any).workflow_config || {}
+    updateTaskConfig.mutate({
+      id: task.id,
+      data: {
+        workflow_config: { ...cfg, disable_checkpoints: !checked },
+      } as any,
+    })
+  }
+
+  const checkpointsEnabled = !(task as any)?.workflow_config?.disable_checkpoints
+
+  // Tab labels based on workflow presence
+  const tabConfig: { id: Tab; label: string }[] = hasWorkflow
+    ? [
+        { id: 'workflow', label: '工作流' },
+        { id: 'overview', label: '概览' },
+      ]
+    : [
+        { id: 'overview', label: '概览' },
+        { id: 'workflow', label: '工作流' },
+      ]
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={onClose}>
       <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <h2 className="text-lg font-bold mb-4">{task ? 'Edit Task' : 'New Task'}</h2>
+        {/* Header */}
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold">
+            {isCreate ? '新建任务' : isView ? '查看任务' : '编辑任务'}
+          </h2>
+          {isView && onSwitchEdit && (
+            <button
+              onClick={onSwitchEdit}
+              className="flex items-center gap-1 text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+            >
+              <Pencil size={12} /> 编辑
+            </button>
+          )}
+        </div>
 
         {/* Tabs */}
         <div className="flex border-b border-gray-200 mb-4">
-          <button
-            onClick={() => setActiveTab('overview')}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === 'overview'
-                ? 'border-gray-900 text-gray-900'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            概览
-          </button>
-          <button
-            onClick={() => setActiveTab('workflow')}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === 'workflow'
-                ? 'border-gray-900 text-gray-900'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            工作流
-          </button>
+          {tabConfig.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === t.id
+                  ? 'border-gray-900 text-gray-900'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
 
         {activeTab === 'overview' && (
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700">Title</label>
-              <input className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" value={title} onChange={e => setTitle(e.target.value)} required />
+              <label className="block text-sm font-medium text-gray-700">标题</label>
+              <input
+                className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-50 disabled:text-gray-500"
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                disabled={isView}
+                required
+              />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Description</label>
-              <textarea className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" rows={3} value={description} onChange={e => setDescription(e.target.value)} />
+              <label className="block text-sm font-medium text-gray-700">描述</label>
+              <textarea
+                className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-50 disabled:text-gray-500"
+                rows={3}
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                disabled={isView}
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Assignee Type</label>
+                <label className="block text-sm font-medium text-gray-700">执行者类型</label>
                 <select
-                  className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-50 disabled:text-gray-500"
                   value={assigneeType}
                   onChange={e => {
                     setAssigneeType(e.target.value as 'agent' | 'group')
                     setAssigneeId(null)
                     setAutoExecute(false)
                   }}
+                  disabled={isView}
                 >
                   <option value="agent">Agent</option>
                   <option value="group">Group</option>
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Assignee</label>
+                <label className="block text-sm font-medium text-gray-700">执行者</label>
                 <select
-                  className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-50 disabled:text-gray-500"
                   value={assigneeId ?? ''}
                   onChange={e => {
                     const val = e.target.value ? Number(e.target.value) : null
                     setAssigneeId(val)
                     if (!val) setAutoExecute(false)
                   }}
+                  disabled={isView}
                 >
                   <option value="">无（手动任务）</option>
                   {candidates.map(c => (
@@ -176,11 +233,12 @@ export default function TaskModal({ task, onClose, onSave }: Props) {
             </div>
 
             {hasAssignee && (
-              <label className="flex items-center gap-2 cursor-pointer">
+              <label className={`flex items-center gap-2 ${isView ? 'cursor-default' : 'cursor-pointer'}`}>
                 <input
                   type="checkbox"
                   checked={autoExecute}
                   onChange={e => setAutoExecute(e.target.checked)}
+                  disabled={isView}
                   className="rounded border-gray-300"
                 />
                 <span className="text-sm text-gray-700">拖入 In Progress 后自动执行</span>
@@ -190,10 +248,11 @@ export default function TaskModal({ task, onClose, onSave }: Props) {
             <div>
               <label className="block text-sm font-medium text-gray-700">文件访问根目录</label>
               <input
-                className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-50 disabled:text-gray-500"
                 placeholder="留空使用 Agent 默认 workspace"
                 value={fileRootDir}
                 onChange={e => setFileRootDir(e.target.value)}
+                disabled={isView}
               />
               <p className="text-xs text-gray-400 mt-1">Agent 文件操作将被限制在此目录内</p>
             </div>
@@ -211,19 +270,39 @@ export default function TaskModal({ task, onClose, onSave }: Props) {
               </div>
             )}
 
+            {/* Final result / artifact */}
             {task && task.status === 'completed' && task.result && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">执行结果</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm font-medium text-gray-700">执行结果</label>
+                  {hasWorkflow && (
+                    <button
+                      onClick={() => setShowArtifacts(true)}
+                      className="flex items-center gap-1 text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded hover:bg-gray-200"
+                    >
+                      <FolderOpen size={12} /> 查看全部产物
+                    </button>
+                  )}
+                </div>
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 max-h-64 overflow-y-auto">
                   <div className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{task.result}</div>
                 </div>
               </div>
             )}
 
-            <div className="flex justify-end gap-2 pt-2">
-              <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-50">Cancel</button>
-              <button onClick={handleSave} className="px-4 py-2 text-sm rounded-lg bg-gray-900 text-white hover:bg-gray-800">Save</button>
-            </div>
+            {/* Buttons */}
+            {isView ? (
+              <div className="flex justify-end gap-2 pt-2">
+                <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-50">关闭</button>
+              </div>
+            ) : (
+              <div className="flex justify-end gap-2 pt-2">
+                <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-50">取消</button>
+                <button onClick={handleSave} className="px-4 py-2 text-sm rounded-lg bg-gray-900 text-white hover:bg-gray-800">
+                  {isCreate ? '创建' : '保存'}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -232,7 +311,7 @@ export default function TaskModal({ task, onClose, onSave }: Props) {
             {!task && (
               <div className="text-center text-gray-400 text-sm py-8">保存任务后可查看工作流</div>
             )}
-            {task && !hasWorkflow && (
+            {task && !hasWorkflow && !isView && (
               <div className="text-center py-8 space-y-3">
                 <p className="text-sm text-gray-500">当前任务尚未拆解为工作流</p>
                 <label className="flex items-center justify-center gap-2 cursor-pointer">
@@ -253,8 +332,28 @@ export default function TaskModal({ task, onClose, onSave }: Props) {
                 </button>
               </div>
             )}
+            {task && !hasWorkflow && isView && (
+              <div className="text-center text-gray-400 text-sm py-8">当前任务尚未拆解为工作流</div>
+            )}
             {task && hasWorkflow && workflowData && (
               <>
+                {/* Global checkpoint config */}
+                <div className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+                  <label className={`flex items-center gap-2 text-sm ${isView ? 'cursor-default' : 'cursor-pointer'}`}>
+                    <input
+                      type="checkbox"
+                      checked={checkpointsEnabled}
+                      onChange={e => handleToggleCheckpoints(e.target.checked)}
+                      disabled={isView}
+                      className="rounded border-gray-300"
+                    />
+                    <span className="text-gray-700">启用人工确认（checkpoint）</span>
+                  </label>
+                  <span className="text-[10px] text-gray-400">
+                    {checkpointsEnabled ? '执行到 checkpoint 会暂停等待确认' : '所有步骤自动连续执行'}
+                  </span>
+                </div>
+
                 <div className="flex items-center justify-between">
                   <div className="text-sm text-gray-700">
                     进度: <span className="font-medium">{workflowData.completed_steps}/{workflowData.total_steps}</span>
@@ -262,9 +361,9 @@ export default function TaskModal({ task, onClose, onSave }: Props) {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => setShowArtifacts(true)}
-                      className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+                      className="flex items-center gap-1 text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
                     >
-                      查看产物
+                      <Eye size={12} /> 查看产物
                     </button>
                     <div className="text-xs text-gray-500">
                       {workflowData.workflow_status === 'running' && '执行中'}

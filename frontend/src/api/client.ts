@@ -111,9 +111,9 @@ export const fileApi = {
   deleteGroup: (groupId: number, fileId: string) =>
     api.delete(`/groups/${groupId}/files/${fileId}`).then(r => r.data),
   listTaskArtifacts: (taskId: number) =>
-    api.get<{ artifacts: { name: string; path: string; size: number }[] }>(`/files/tasks/${taskId}/artifacts`).then(r => r.data),
+    api.get<{ artifacts: { name: string; path: string; size: number }[] }>(`/tasks/${taskId}/artifacts`).then(r => r.data),
   readArtifact: (path: string) =>
-    api.get<{ content: string; path: string }>(`/files/artifacts/read`, { params: { path } }).then(r => r.data),
+    api.get<{ content: string; path: string }>(`/artifacts/read`, { params: { path } }).then(r => r.data),
 };
 
 export const summaryApi = {

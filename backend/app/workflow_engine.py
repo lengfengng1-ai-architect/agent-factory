@@ -232,6 +232,9 @@ async def execute_workflow(task_id: int):
         if not task or not task.workflow_plan:
             return
         
+        cfg = task.workflow_config or {}
+        disable_checkpoints = cfg.get("disable_checkpoints", False)
+        
         task.workflow_status = "running"
         db.commit()
         
@@ -246,6 +249,8 @@ async def execute_workflow(task_id: int):
                     task.status = "completed"
                     task.workflow_status = "completed"
                     task.progress = 100
+                    # Aggregate final result from all steps
+                    _aggregate_workflow_result(task, all_steps, db)
                     db.commit()
                 break
             
@@ -257,7 +262,6 @@ async def execute_workflow(task_id: int):
             db.refresh(step)
             
             if step.status == "failed":
-                cfg = task.workflow_config or {}
                 max_retries = cfg.get("retry_count", DEFAULT_RETRY_COUNT)
                 if step.retry_count < max_retries:
                     step.retry_count += 1
@@ -276,8 +280,8 @@ async def execute_workflow(task_id: int):
                     db.commit()
                     break
             
-            # If checkpoint, pause for human feedback
-            if step.checkpoint:
+            # If checkpoint, pause for human feedback (unless globally disabled)
+            if step.checkpoint and not disable_checkpoints:
                 step.status = "waiting_feedback"
                 # Update progress before pausing
                 all_steps = db.query(models.WorkflowStep).filter(
@@ -299,3 +303,28 @@ async def execute_workflow(task_id: int):
     
     finally:
         db.close()
+
+
+def _aggregate_workflow_result(task: models.Task, steps: list, db: Session):
+    """Merge all step results/artifacts into task.result and write final_artifact.md."""
+    import os
+    
+    # Build aggregated result
+    lines = [f"# {task.title}\n", f"\n> 任务描述：{task.description or ''}\n"]
+    for step in sorted(steps, key=lambda s: s.order_index):
+        if step.status == "completed" and step.result:
+            lines.append(f"\n## {step.name}\n")
+            lines.append(step.result)
+            lines.append("\n")
+    
+    task.result = "\n".join(lines)
+    
+    # Write final_artifact.md
+    task_dir = os.path.join(os.path.dirname(__file__), "workspace", "tasks", str(task.id))
+    if os.path.exists(task_dir):
+        final_path = os.path.join(task_dir, "final_artifact.md")
+        try:
+            with open(final_path, "w", encoding="utf-8") as f:
+                f.write(task.result)
+        except Exception:
+            pass

@@ -27,9 +27,12 @@ function Column({ id, title, bg, children, count }: { id: string; title: string;
   )
 }
 
+type ModalMode = 'view' | 'edit' | 'create'
+
 export default function TasksPage() {
   const [modalOpen, setModalOpen] = useState(false)
-  const [editing, setEditing] = useState<Task | null>(null)
+  const [modalMode, setModalMode] = useState<ModalMode>('create')
+  const [modalTask, setModalTask] = useState<Task | null>(null)
   const [showConfig, setShowConfig] = useState(false)
   const qc = useQueryClient()
 
@@ -88,8 +91,8 @@ export default function TasksPage() {
             <Settings size={14} />
             配置
           </button>
-          <button onClick={() => { setEditing(null); setModalOpen(true) }} className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-800">
-            <Plus size={16} /> New Task
+          <button onClick={() => { setModalTask(null); setModalMode('create'); setModalOpen(true) }} className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-800">
+            <Plus size={16} /> 新建任务
           </button>
         </div>
       </div>
@@ -116,7 +119,7 @@ export default function TasksPage() {
             return (
               <Column key={col.id} id={col.id} title={col.title} bg={col.bg} count={colTasks.length}>
                 {colTasks.map(task => (
-                  <TaskCard key={task.id} task={task} onEdit={t => { setEditing(t); setModalOpen(true) }} />
+                  <TaskCard key={task.id} task={task} onEdit={t => { setModalTask(t); setModalMode('view'); setModalOpen(true) }} />
                 ))}
               </Column>
             )
@@ -124,10 +127,18 @@ export default function TasksPage() {
         </div>
       </DndContext>
 
-      {modalOpen && <TaskModal task={editing} onClose={() => setModalOpen(false)} onSave={data => {
-        if (editing) update.mutate({ id: editing.id, data })
-        else create.mutate(data)
-      }} />}
+      {modalOpen && (
+        <TaskModal
+          task={modalTask}
+          mode={modalMode}
+          onClose={() => setModalOpen(false)}
+          onSave={data => {
+            if (modalTask) update.mutate({ id: modalTask.id, data })
+            else create.mutate(data)
+          }}
+          onSwitchEdit={() => setModalMode('edit')}
+        />
+      )}
     </div>
   )
 }

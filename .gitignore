@@ -21,6 +21,7 @@ wheels/
 *.egg
 backend/venv/
 backend/workspace/
+AGENTS.md
 
 # Node
 node_modules/

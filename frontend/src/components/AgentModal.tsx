@@ -310,12 +310,12 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
                       <input
                         readOnly
                         className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-gray-50 text-gray-600 font-mono"
-                        value={`${window.location.origin}/api/feishu/webhook/${agent.id}`}
+                        value={`${window.location.origin}/api/feishu/webhook`}
                       />
                       <button
                         type="button"
                         onClick={() => {
-                          navigator.clipboard.writeText(`${window.location.origin}/api/feishu/webhook/${agent.id}`)
+                          navigator.clipboard.writeText(`${window.location.origin}/api/feishu/webhook`)
                           alert('已复制到剪贴板')
                         }}
                         className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-lg border border-gray-300"
@@ -325,6 +325,7 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
                     </div>
                     <p className="mt-1 text-[10px] text-gray-400">
                       将此 URL 粘贴到飞书开放平台 → 事件订阅 → 请求地址配置中
+                      （所有 Agent 共享同一个 Webhook URL，通过 App ID 自动识别）
                     </p>
                   </div>
                 )}

@@ -32,27 +32,36 @@ def _resolve_llm_config(agent: models.Agent, db: Session):
     return base_url, model, api_key
 
 
-@router.post("/feishu/webhook/{agent_id}")
-async def feishu_webhook(agent_id: int, payload: dict, db: Session = Depends(get_db)):
+@router.post("/feishu/webhook")
+async def feishu_webhook(payload: dict, db: Session = Depends(get_db)):
     """Receive Feishu message events and forward to Agent LLM."""
     
-    # 1. Find agent
-    agent = db.query(models.Agent).filter(models.Agent.id == agent_id).first()
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    
-    # 2. Check Feishu config
-    feishu_cfg = (agent.config or {}).get("feishu", {})
-    if not feishu_cfg.get("enabled"):
-        return {"message": "Feishu bot not enabled for this agent"}
-    
-    app_id = feishu_cfg.get("app_id", "")
-    app_secret = feishu_cfg.get("app_secret", "")
-    if not app_id or not app_secret:
-        return {"message": "Feishu app_id or app_secret not configured"}
-    
-    # 3. Parse Feishu event
+    # 1. Extract app_id from Feishu event header
     header = payload.get("header", {})
+    app_id = header.get("app_id", "")
+    
+    if not app_id:
+        return {"message": "missing app_id in header"}
+    
+    # 2. Find agent by matching feishu.app_id in config
+    agents = db.query(models.Agent).all()
+    agent = None
+    for a in agents:
+        feishu_cfg = (a.config or {}).get("feishu", {})
+        if feishu_cfg.get("enabled") and feishu_cfg.get("app_id") == app_id:
+            agent = a
+            break
+    
+    if not agent:
+        return {"message": f"no agent configured for app_id: {app_id}"}
+    
+    # 3. Check Feishu config
+    feishu_cfg = (agent.config or {}).get("feishu", {})
+    app_secret = feishu_cfg.get("app_secret", "")
+    if not app_secret:
+        return {"message": "Feishu app_secret not configured"}
+    
+    # 4. Parse Feishu event
     event_type = header.get("event_type", "")
     
     if event_type != "im.message.receive_v1":
@@ -76,7 +85,7 @@ async def feishu_webhook(agent_id: int, payload: dict, db: Session = Depends(get
     if not sender_id:
         return {"message": "no sender"}
     
-    # 4. Call Agent LLM
+    # 5. Call Agent LLM
     try:
         base_url, model, api_key = _resolve_llm_config(agent, db)
         
@@ -101,7 +110,7 @@ async def feishu_webhook(agent_id: int, payload: dict, db: Session = Depends(get
     except Exception as e:
         reply = f"抱歉，处理消息时出错：{e}"
     
-    # 5. Send reply back to Feishu
+    # 6. Send reply back to Feishu
     try:
         result = send_text_message(app_id, app_secret, sender_id, reply)
         return {"message": "ok", "feishu_result": result}

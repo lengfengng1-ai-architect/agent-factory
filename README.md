@@ -55,7 +55,8 @@ graph TD
     E --> E3[DeepSeek]
     E --> E4[阿里云百炼]
     E --> E5[Ollama]
-    E --> E6[Custom]
+    E --> E6[火山方舟]
+    E --> E7[Custom]
 ```
 
 ---
@@ -67,7 +68,7 @@ graph TD
 | 能力 | 说明 |
 |------|------|
 | CRUD | 创建、编辑、删除、查看 Agent 卡片 |
-| 多供应商 | 支持 Kimi / OpenAI / DeepSeek / 阿里云百炼 / Ollama / Custom |
+| 多供应商 | 支持 Kimi / OpenAI / DeepSeek / 阿里云百炼 / 火山方舟 / Ollama / Custom |
 | 独立配置 | 每个 Agent 独立设置 Provider、Model、API Key、System Prompt |
 | 实时对话 | SSE 流式传输，打字机式输出，支持历史记录持久化 |
 
@@ -75,7 +76,7 @@ graph TD
 
 | 能力 | 说明 |
 |------|------|
-| 内置供应商 | 6 个内置 Provider（Kimi / OpenAI / Ollama / DeepSeek / 阿里云百炼 / Custom） |
+| 内置供应商 | 7 个内置 Provider（Kimi / OpenAI / Ollama / DeepSeek / 阿里云百炼 / 火山方舟 / Custom） |
 | 自定义供应商 | 添加、编辑、删除自定义 Provider |
 | 模型自动发现 | 从 OpenAI-compatible / Ollama API 自动拉取可用模型列表 |
 | 重置功能 | 内置供应商支持一键恢复默认配置 |
@@ -109,6 +110,31 @@ flowchart LR
 - 三列看板：To Do / In Progress / Done
 - 支持拖拽改状态
 - Task 可分配给单个 Agent 或整个 Group
+
+### 📎 多文件上传与上下文管理
+
+Agent / Group 聊天支持上传文件（txt / pdf / md / 代码等），自动提取文本并在模型上下文窗口限制下进行智能分配：
+
+| 模式 | 说明 |
+|------|------|
+| **截断模式** | 超长文件保留头尾，中间标注省略，确保不超出预算 |
+| **摘要模式** | 调用 LLM 生成结构化摘要，大幅降低 Token 占用 |
+| **自动模式** | 短文件用全文，长文件自动切换为摘要 |
+
+上下文预算策略：总预算 = context_window - 2000 reserve，文件 60% + 历史 40%，单文件上限 15,000 字符。
+
+### 📚 文件摘要库
+
+- 文件摘要自动生成后 **SQLite 持久化 + Redis 缓存** 双写
+- 前端 📚 摘要库面板：搜索、查看、删除历史摘要
+- 聊天时自动注入最近 5 个历史摘要作为上下文，无需重复上传
+
+### 🤖 飞书机器人（WebSocket 长连接）
+
+- 每个 Agent 可独立绑定飞书机器人，无需公网域名
+- 后端通过 **WebSocket 长连接**主动连接飞书服务器接收事件
+- 支持手动连接 / 断开，前端实时显示连接状态
+- 收到飞书消息后自动调用 Agent LLM 回复
 
 ### 💬 聊天记录持久化
 
@@ -266,6 +292,19 @@ cd frontend && npm run dev
 |------|------|
 | `GET/POST /api/tasks` | Task 列表 / 创建 |
 | `GET/PUT/DELETE /api/tasks/{id}` | 获取 / 更新 / 删除 |
+
+### 文件摘要
+| 端点 | 说明 |
+|------|------|
+| `GET /api/summaries` | 查询摘要列表（支持搜索） |
+| `DELETE /api/summaries/{id}` | 删除摘要 |
+
+### 飞书机器人
+| 端点 | 说明 |
+|------|------|
+| `GET /api/feishu/status/{agent_id}` | 查询 WebSocket 连接状态 |
+| `POST /api/feishu/connect/{agent_id}` | 手动启动长连接 |
+| `POST /api/feishu/disconnect/{agent_id}` | 手动断开长连接 |
 
 ---
 

@@ -45,6 +45,16 @@ def create_llm(
         if "api.kimi.com" in (base_url or ""):
             extra_kwargs.setdefault("default_headers", {})
             extra_kwargs["default_headers"]["User-Agent"] = "KimiCLI/1.30.0"
+        # Kimi K2.6+ thinking mode conflicts with tool calling:
+        # API rejects assistant tool-call messages without reasoning_content.
+        # Disable thinking by default unless agent config explicitly enables it.
+        agent_config = getattr(agent, 'config', None) or {}
+        thinking_enabled = agent_config.get('thinking_enabled', False)
+        if not thinking_enabled:
+            extra_body = extra_kwargs.setdefault("extra_body", {})
+            # Only set if user hasn't already configured thinking
+            if "thinking" not in extra_body:
+                extra_body["thinking"] = {"type": "disabled"}
 
     if provider.key == "ollama":
         api_key = api_key or "ollama"

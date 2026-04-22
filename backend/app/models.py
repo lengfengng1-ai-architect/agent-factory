@@ -1,6 +1,23 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime, JSON, Boolean
 from sqlalchemy.sql import func
+from sqlalchemy.types import TypeDecorator
 from app.database import Base
+
+
+class SafeJSON(TypeDecorator):
+    """JSON type that treats empty strings as None/defaults (SQLite safety)."""
+    impl = JSON
+    cache_ok = True
+
+    def process_result_value(self, value, dialect):
+        if value == "" or value is None:
+            return None
+        return value
+
+    def process_bind_param(self, value, dialect):
+        if value == "" or value is None:
+            return None
+        return value
 
 
 class Agent(Base):
@@ -10,7 +27,7 @@ class Agent(Base):
     name = Column(String, nullable=False)
     description = Column(Text, default="")
     avatar = Column(String, default="")
-    config = Column(JSON, default=dict)
+    config = Column(SafeJSON, default=dict)
     system_prompt = Column(Text, default="You are a helpful assistant.")
     provider = Column(String, default="kimi")
     model = Column(String, default="kimi-latest")
@@ -26,8 +43,8 @@ class Group(Base):
     name = Column(String, nullable=False)
     description = Column(Text, default="")
     chat_type = Column(String, default="parallel")
-    agent_ids = Column(JSON, default=list)
-    config = Column(JSON, default=dict)
+    agent_ids = Column(SafeJSON, default=list)
+    config = Column(SafeJSON, default=dict)
     file_root_dir = Column(String, default="")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -45,9 +62,9 @@ class Task(Base):
     auto_execute = Column(Boolean, default=False)
     progress = Column(Integer, default=0)
     file_root_dir = Column(String, default="")
-    workflow_plan = Column(JSON, default=None)
+    workflow_plan = Column(SafeJSON, default=None)
     workflow_status = Column(String, default="")
-    workflow_config = Column(JSON, default=dict)
+    workflow_config = Column(SafeJSON, default=dict)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -61,7 +78,7 @@ class WorkflowStep(Base):
     description = Column(Text, default="")
     status = Column(String, default="pending")
     order_index = Column(Integer, default=0)
-    depends_on = Column(JSON, default=list)
+    depends_on = Column(SafeJSON, default=list)
     agent_id = Column(Integer, nullable=True)
     checkpoint = Column(Boolean, default=False)
     output_type = Column(String, default="")
@@ -85,7 +102,7 @@ class Provider(Base):
     doc_url = Column(String, default="")
     is_builtin = Column(Boolean, default=False)
     is_enabled = Column(Boolean, default=True)
-    config = Column(JSON, default=dict)
+    config = Column(SafeJSON, default=dict)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 

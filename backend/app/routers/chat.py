@@ -131,8 +131,41 @@ async def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(ge
     tools = get_agent_tools(agent, override_root_dir=override_root)
 
     async def stream_response():
-        """Stream agent response directly using agent.astream()."""
+        """Stream agent response directly using agent.astream().
+
+        Supports:
+        - Token-level streaming for fast first-token display
+        - Reasoning/thinking content from providers (DeepSeek, Kimi, etc.)
+        - Tool call notifications
+        """
         full_response = ""
+        reasoning_buffer = ""
+
+        def _extract_message(event):
+            """Extract AIMessage from v1 tuple or v2 dict format."""
+            if isinstance(event, tuple) and len(event) > 0:
+                return event[0]
+            if isinstance(event, dict):
+                data = event.get("data")
+                if isinstance(data, tuple) and len(data) > 0:
+                    return data[0]
+            return event
+
+        def _extract_reasoning(msg) -> str:
+            """Extract reasoning content from message."""
+            # Provider-specific: DeepSeek / Kimi / OpenAI o1
+            reasoning = getattr(msg, 'reasoning_content', None)
+            if reasoning:
+                return reasoning
+            reasoning = msg.additional_kwargs.get('reasoning_content', '')
+            if reasoning:
+                return reasoning
+            # Check content_blocks for ReasoningContentBlock
+            blocks = getattr(msg, 'content_blocks', None) or []
+            for block in blocks:
+                if isinstance(block, dict) and block.get('type') == 'reasoning':
+                    return block.get('reasoning', '')
+            return ''
 
         try:
             if tools:
@@ -146,17 +179,39 @@ async def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(ge
                     {"messages": messages},
                     stream_mode="messages",
                 ):
-                    # event is a message object (AIMessage, ToolMessage, etc.)
-                    if isinstance(event, AIMessage) and event.content:
-                        full_response += event.content
-                        yield f"data: {json.dumps({'content': event.content}, ensure_ascii=False)}\n\n"
-                    elif isinstance(event, AIMessage) and event.tool_calls:
-                        # Optionally notify frontend about tool calls
-                        tool_names = [tc["name"] for tc in event.tool_calls]
+                    msg = _extract_message(event)
+                    if not isinstance(msg, AIMessage):
+                        continue
+
+                    # Stream reasoning content
+                    reasoning = _extract_reasoning(msg)
+                    if reasoning and reasoning != reasoning_buffer:
+                        new_reasoning = reasoning[len(reasoning_buffer):]
+                        reasoning_buffer = reasoning
+                        if new_reasoning:
+                            yield f"data: {json.dumps({'reasoning': new_reasoning}, ensure_ascii=False)}\n\n"
+
+                    # Stream text content
+                    if msg.content:
+                        full_response += msg.content
+                        yield f"data: {json.dumps({'content': msg.content}, ensure_ascii=False)}\n\n"
+
+                    # Notify about tool calls
+                    if msg.tool_calls:
+                        tool_names = [tc["name"] for tc in msg.tool_calls]
                         yield f"data: {json.dumps({'tool_calls': tool_names}, ensure_ascii=False)}\n\n"
             else:
-                # No tools: simple LLM streaming
+                # No tools: simple LLM streaming (token-level)
                 async for chunk in llm.astream(messages):
+                    # Stream reasoning content
+                    reasoning = _extract_reasoning(chunk)
+                    if reasoning and reasoning != reasoning_buffer:
+                        new_reasoning = reasoning[len(reasoning_buffer):]
+                        reasoning_buffer = reasoning
+                        if new_reasoning:
+                            yield f"data: {json.dumps({'reasoning': new_reasoning}, ensure_ascii=False)}\n\n"
+
+                    # Stream text content
                     if chunk.content:
                         full_response += chunk.content
                         yield f"data: {json.dumps({'content': chunk.content}, ensure_ascii=False)}\n\n"

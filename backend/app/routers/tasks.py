@@ -280,3 +280,44 @@ def skip_step(task_id: int, step_id: int, db: Session = Depends(get_db)):
     asyncio.create_task(execute_workflow(task_id))
     
     return {"success": True, "message": "Step skipped, workflow resumed"}
+
+
+@router.get("/{task_id}/workflow/progress")
+def get_workflow_progress(task_id: int, db: Session = Depends(get_db)):
+    """Get workflow execution progress for a task."""
+    task = db.query(models.Task).filter(models.Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    steps = db.query(models.WorkflowStep).filter(
+        models.WorkflowStep.task_id == task_id
+    ).order_by(models.WorkflowStep.order_index).all()
+    
+    total = len(steps)
+    completed = sum(1 for s in steps if s.status in ("completed", "skipped"))
+    waiting = sum(1 for s in steps if s.status == "waiting_feedback")
+    failed = sum(1 for s in steps if s.status == "failed")
+    running = sum(1 for s in steps if s.status == "running")
+    
+    return {
+        "task_id": task_id,
+        "workflow_status": task.workflow_status,
+        "progress": task.progress,
+        "total_steps": total,
+        "completed_steps": completed,
+        "waiting_steps": waiting,
+        "failed_steps": failed,
+        "running_steps": running,
+        "steps": [
+            {
+                "id": s.id,
+                "name": s.name,
+                "status": s.status,
+                "order_index": s.order_index,
+                "checkpoint": s.checkpoint,
+                "retry_count": s.retry_count,
+                "artifact_path": s.artifact_path,
+            }
+            for s in steps
+        ]
+    }

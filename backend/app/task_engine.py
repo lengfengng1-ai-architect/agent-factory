@@ -220,37 +220,118 @@ _scheduler_task: Optional[asyncio.Task] = None
 
 
 async def _scheduler_loop():
-    """Background scheduler: auto-start pending auto-execute tasks up to concurrency limit."""
+    """Background scheduler: auto-start pending tasks and monitor running workflows."""
     while True:
         await asyncio.sleep(3)
         db = SessionLocal()
         try:
+            # ── Existing: auto-start pending tasks ──
             running_count = sum(1 for t in _executing_tasks.values() if not t.done())
-            if running_count >= MAX_CONCURRENT_TASKS:
-                continue
-
-            pending_tasks = (
-                db.query(models.Task)
-                .filter(
-                    models.Task.status == "pending",
-                    models.Task.auto_execute == True,
-                    models.Task.assignee_id.isnot(None),
+            if running_count < MAX_CONCURRENT_TASKS:
+                pending_tasks = (
+                    db.query(models.Task)
+                    .filter(
+                        models.Task.status == "pending",
+                        models.Task.auto_execute == True,
+                        models.Task.assignee_id.isnot(None),
+                    )
+                    .order_by(models.Task.created_at)
+                    .all()
                 )
-                .order_by(models.Task.created_at)
-                .all()
-            )
+                for task in pending_tasks:
+                    if running_count >= MAX_CONCURRENT_TASKS:
+                        break
+                    existing = _executing_tasks.get(task.id)
+                    if existing and not existing.done():
+                        continue
+                    bg_task = asyncio.create_task(_run_task(task.id))
+                    _executing_tasks[task.id] = bg_task
+                    running_count += 1
 
-            for task in pending_tasks:
-                if running_count >= MAX_CONCURRENT_TASKS:
-                    break
-                existing = _executing_tasks.get(task.id)
-                if existing and not existing.done():
-                    continue
-                bg_task = asyncio.create_task(_run_task(task.id))
-                _executing_tasks[task.id] = bg_task
-                running_count += 1
+            # ── NEW: Monitor running workflows ──
+            await _monitor_workflows(db)
+
         finally:
             db.close()
+
+
+async def _monitor_workflows(db: Session):
+    """Check running workflows for timeouts and send progress notifications."""
+    from datetime import datetime, timezone, timedelta
+    from app.workflow_engine import execute_workflow, DEFAULT_TIMEOUT_MINUTES
+    from app.feishu_client import send_text_message
+
+    running_tasks = (
+        db.query(models.Task)
+        .filter(models.Task.workflow_status == "running")
+        .all()
+    )
+
+    for task in running_tasks:
+        # Find currently running step
+        running_step = db.query(models.WorkflowStep).filter(
+            models.WorkflowStep.task_id == task.id,
+            models.WorkflowStep.status == "running"
+        ).first()
+
+        if running_step and running_step.started_at:
+            timeout = (task.workflow_config or {}).get("timeout_minutes", DEFAULT_TIMEOUT_MINUTES)
+            elapsed = datetime.now(timezone.utc) - running_step.started_at
+            if elapsed > timedelta(minutes=timeout):
+                # Timeout: mark as failed and retry
+                running_step.status = "failed"
+                running_step.result = f"Timeout after {timeout} minutes"
+                db.commit()
+
+                cfg = task.workflow_config or {}
+                max_retries = cfg.get("retry_count", 3)
+                if running_step.retry_count < max_retries:
+                    running_step.retry_count += 1
+                    running_step.status = "pending"
+                    db.commit()
+                    # Resume workflow
+                    asyncio.create_task(execute_workflow(task.id))
+                else:
+                    task.workflow_status = "failed"
+                    task.status = "completed"
+                    db.commit()
+                    _notify_feishu(task, f"❌ 任务「{task.title}」的步骤「{running_step.name}」超时，已达到最大重试次数。", db)
+
+        # Check for waiting_feedback steps and notify
+        waiting_step = db.query(models.WorkflowStep).filter(
+            models.WorkflowStep.task_id == task.id,
+            models.WorkflowStep.status == "waiting_feedback"
+        ).first()
+
+        if waiting_step:
+            # Only notify if waiting for more than 1 minute (avoid spam)
+            if waiting_step.completed_at:
+                wait_time = datetime.now(timezone.utc) - waiting_step.completed_at
+                if wait_time > timedelta(minutes=1):
+                    _notify_feishu(task, f"⏸️ 任务「{task.title}」的步骤「{waiting_step.name}」已完成，等待您的确认。请前往平台查看。", db)
+
+
+def _notify_feishu(task: models.Task, message: str, db: Session):
+    """Send notification via Feishu if the task's agent has Feishu bot configured."""
+    if task.assignee_type != "agent" or not task.assignee_id:
+        return
+    agent = db.query(models.Agent).filter(models.Agent.id == task.assignee_id).first()
+    if not agent:
+        return
+    feishu_cfg = (agent.config or {}).get("feishu", {})
+    if not feishu_cfg.get("enabled"):
+        return
+    app_id = feishu_cfg.get("app_id", "")
+    app_secret = feishu_cfg.get("app_secret", "")
+    if not app_id or not app_secret:
+        return
+    try:
+        # Send to a default conversation or broadcast
+        # For now, we don't have a stored sender_id, so we skip direct message
+        # This is a placeholder for future enhancement when sender_id tracking is added
+        pass
+    except Exception:
+        pass
 
 
 def start_scheduler():

@@ -257,6 +257,12 @@ async def execute_workflow(task_id: int):
                     db.commit()
                     continue
                 else:
+                    # Update progress before failing
+                    all_steps = db.query(models.WorkflowStep).filter(
+                        models.WorkflowStep.task_id == task_id
+                    ).all()
+                    completed = sum(1 for s in all_steps if s.status in ("completed", "skipped"))
+                    task.progress = int(completed / len(all_steps) * 100) if all_steps else 0
                     task.workflow_status = "failed"
                     task.status = "completed"
                     db.commit()
@@ -264,6 +270,12 @@ async def execute_workflow(task_id: int):
             
             # If checkpoint, pause for human feedback
             if step.checkpoint:
+                # Update progress before pausing
+                all_steps = db.query(models.WorkflowStep).filter(
+                    models.WorkflowStep.task_id == task_id
+                ).all()
+                completed = sum(1 for s in all_steps if s.status in ("completed", "skipped"))
+                task.progress = int(completed / len(all_steps) * 100) if all_steps else 0
                 task.workflow_status = "waiting_feedback"
                 db.commit()
                 break

@@ -95,6 +95,21 @@ def on_startup():
     db = next(get_db())
     try:
         providers.init_builtin_providers(db)
+        
+        # Start Feishu WebSocket clients for all enabled agents
+        from app.feishu_ws import start_feishu_ws
+        from app import models as app_models
+        agents = db.query(app_models.Agent).all()
+        for agent in agents:
+            feishu_cfg = (agent.config or {}).get("feishu", {})
+            if feishu_cfg.get("enabled"):
+                start_feishu_ws(agent)
     finally:
         db.close()
     start_scheduler()
+
+
+@app.on_event("shutdown")
+def on_shutdown():
+    from app.feishu_ws import stop_all_feishu_ws
+    stop_all_feishu_ws()

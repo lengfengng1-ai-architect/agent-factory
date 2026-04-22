@@ -22,7 +22,6 @@ wheels/
 backend/venv/
 backend/workspace/
 backend/app/workspace/
-AGENTS.md
 
 # Node
 node_modules/
@@ -53,3 +52,5 @@ Thumbs.db
 logs
 *.log
 .hermes/*
+AGENTS.md
+AGENTS.md

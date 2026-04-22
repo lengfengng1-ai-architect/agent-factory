@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Bot, Send, X, Users, Maximize2, Minimize2, FileText, BookOpen } from 'lucide-react'
+import { Bot, Send, X, Users, Maximize2, Minimize2, FileText, BookOpen, Copy, Check } from 'lucide-react'
 import { agentApi, groupChatApi, fileApi, summaryApi } from '../api/client'
 import type { Group, ChatFile } from '../types'
 import ChatFileBar, { type FileMode } from './ChatFileBar'
@@ -38,6 +38,7 @@ export default function GroupChatModal({ group, onClose }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const [showSummaryPanel, setShowSummaryPanel] = useState(false)
   const [selectedSummaries, setSelectedSummaries] = useState<number[]>([])
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null)
 
   const { data: agents } = useQuery({ queryKey: ['agents'], queryFn: agentApi.list })
   const groupAgents = agents?.filter(a => group.agent_ids?.includes(a.id)) || []
@@ -281,6 +282,16 @@ export default function GroupChatModal({ group, onClose }: Props) {
     }
   }
 
+  const handleCopy = async (text: string, idx: number) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedIdx(idx)
+      setTimeout(() => setCopiedIdx(null), 2000)
+    } catch {
+      // ignore
+    }
+  }
+
   const handleSend = async () => {
     const text = input.trim()
     if (!text || loading) return
@@ -403,13 +414,22 @@ export default function GroupChatModal({ group, onClose }: Props) {
               <div className="text-center text-gray-400 text-sm mt-10">Start a group conversation</div>
             )}
             {messages.map((msg, idx) => (
-              <div key={idx}>
+              <div key={idx} className="group">
                 {msg.role === 'user' ? (
                   <div className="flex justify-end">
                     <div className="max-w-[80%]">
                       <div className="max-w-[80%] px-4 py-2 rounded-2xl bg-gray-900 text-white text-sm rounded-br-md">
                         {msg.content}
                       </div>
+                      {msg.content && !loading && (
+                        <button
+                          onClick={() => handleCopy(msg.content, idx)}
+                          className="flex items-center gap-1 mt-1 text-[10px] text-gray-400 hover:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity ml-auto"
+                        >
+                          {copiedIdx === idx ? <Check size={10} /> : <Copy size={10} />}
+                          {copiedIdx === idx ? '已复制' : '复制'}
+                        </button>
+                      )}
                       {msg.fileIds && msg.fileIds.length > 0 && (
                         <div className="flex items-center gap-1 mt-1 justify-end">
                           <FileText size={10} className="text-gray-400" />
@@ -434,6 +454,15 @@ export default function GroupChatModal({ group, onClose }: Props) {
                           <span className="inline-block w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
                         ) : null)}
                       </div>
+                      {msg.content && !loading && (
+                        <button
+                          onClick={() => handleCopy(msg.content, idx)}
+                          className="flex items-center gap-1 mt-1 text-[10px] text-gray-400 hover:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          {copiedIdx === idx ? <Check size={10} /> : <Copy size={10} />}
+                          {copiedIdx === idx ? '已复制' : '复制'}
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}

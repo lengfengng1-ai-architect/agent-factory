@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Bot, User, Send, X, FileText, BookOpen, MessageCircle } from 'lucide-react'
+import { Bot, User, Send, X, FileText, BookOpen, MessageCircle, Copy, Check } from 'lucide-react'
 import type { Agent, ChatFile } from '../types'
 import { chatApi, fileApi, summaryApi, feishuApi } from '../api/client'
 import ChatFileBar, { type FileMode } from './ChatFileBar'
@@ -32,6 +32,7 @@ export default function ChatModal({ agent, onClose }: Props) {
   const [showSummaryPanel, setShowSummaryPanel] = useState(false)
   const [selectedSummaries, setSelectedSummaries] = useState<number[]>([])
   const [activeTab, setActiveTab] = useState<'chat' | 'feishu'>('chat')
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null)
 
   useEffect(() => {
     if (activeTab === 'feishu' && !agent.config?.feishu?.enabled) {
@@ -110,6 +111,16 @@ export default function ChatModal({ agent, onClose }: Props) {
       alert(`删除失败: ${err.message || 'Unknown error'}`)
     }
   }, [agent.id])
+
+  const handleCopy = async (text: string, idx: number) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedIdx(idx)
+      setTimeout(() => setCopiedIdx(null), 2000)
+    } catch {
+      // ignore
+    }
+  }
 
   const handleSend = async () => {
     const text = input.trim()
@@ -276,7 +287,7 @@ export default function ChatModal({ agent, onClose }: Props) {
           )}
 
           {activeTab === 'chat' && messages.map((msg, idx) => (
-            <div key={idx} className={`flex gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div key={idx} className={`group flex gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               {msg.role === 'assistant' && (
                 <div className="w-7 h-7 rounded-full bg-gray-900 text-white flex items-center justify-center flex-shrink-0 mt-1">
                   <Bot size={14} />
@@ -294,6 +305,15 @@ export default function ChatModal({ agent, onClose }: Props) {
                     <span className="inline-block w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
                   ) : null)}
                 </div>
+                {msg.content && !loading && (
+                  <button
+                    onClick={() => handleCopy(msg.content, idx)}
+                    className={`flex items-center gap-1 mt-1 text-[10px] text-gray-400 hover:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity ${msg.role === 'user' ? 'justify-end ml-auto' : ''}`}
+                  >
+                    {copiedIdx === idx ? <Check size={10} /> : <Copy size={10} />}
+                    {copiedIdx === idx ? '已复制' : '复制'}
+                  </button>
+                )}
                 {msg.role === 'user' && msg.fileIds && msg.fileIds.length > 0 && (
                   <div className="flex items-center gap-1 mt-1 justify-end">
                     <FileText size={10} className="text-gray-400" />

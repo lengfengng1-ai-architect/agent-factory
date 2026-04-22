@@ -8,6 +8,7 @@ from app.task_engine import (
     _run_task, _executing_tasks,
     get_task_progress, get_max_concurrent_tasks, set_max_concurrent_tasks,
 )
+from app.workflow_engine import breakdown_task as wf_breakdown, execute_workflow
 
 router = APIRouter()
 
@@ -162,16 +163,15 @@ def delete_task_step(task_id: int, step_id: int, db: Session = Depends(get_db)):
 # ── Task Breakdown ──
 
 @router.post("/{task_id}/breakdown")
-def breakdown_task(task_id: int, db: Session = Depends(get_db)):
+async def breakdown_task(task_id: int, db: Session = Depends(get_db)):
     """Break down a task into workflow steps using LLM."""
     task = db.query(models.Task).filter(models.Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    # TODO: Phase 2 中实现真正的 LLM 拆解
-    # 这里先返回占位，让 API 可用
+    steps = await wf_breakdown(task, db)
     return {
         "task_id": task_id,
-        "message": "Breakdown will be implemented in Phase 2",
-        "placeholder_steps": []
+        "steps_count": len(steps),
+        "steps": [{"id": s.id, "name": s.name, "order_index": s.order_index, "checkpoint": s.checkpoint} for s in steps]
     }

@@ -155,10 +155,13 @@ async def _run_task(task_id: int):
             task.progress = 0
             db.commit()
 
-            # Simulate progress (0 -> 30 -> 60 -> 90 -> 100)
-            progress_steps = [10, 30, 50, 70, 90]
-            step_index = 0
+            # Workflow mode
+            if task.workflow_plan:
+                from app.workflow_engine import execute_workflow
+                await execute_workflow(task_id)
+                return
 
+            # Legacy single-shot mode
             if task.assignee_type == "agent":
                 result = await _execute_with_agent(task, db)
             elif task.assignee_type == "group":

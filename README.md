@@ -318,19 +318,6 @@ cd frontend && npm run dev
 
 ---
 
-## 📜 开发规范
-
-本项目遵循 `.hermes/workflow/development-workflow.md` 定义的开发流程：
-
-1. **提出需求** → 用户描述改动
-2. **编写计划** → 按小功能点拆分，写入 `.hermes/plans/`
-3. **确认计划** → 用户审批
-4. **子代理开发** → 并行/串行分派 Task
-5. **Commit & Push** → 每个 Task 完成后提交并推送
-6. **验收** → 联调验证
-
----
-
 ## 📄 License
 
 [MIT](LICENSE)

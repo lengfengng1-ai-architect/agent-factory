@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { X } from 'lucide-react'
+import { X, FolderOpen } from 'lucide-react'
 import { taskApi, fileApi } from '../api/client'
 import type { Task } from '../types'
 import WorkflowStepList from './WorkflowStepList'
@@ -13,8 +13,10 @@ interface Props {
 
 export default function TaskDetailPanel({ task, onClose }: Props) {
   const [showArtifacts, setShowArtifacts] = useState(false)
+  const [activeTab, setActiveTab] = useState<'workflow' | 'result'>('workflow')
 
   const hasWorkflow = !!(task.workflow_plan || task.workflow_status)
+  const showResultTab = hasWorkflow && task.status === 'completed'
 
   const { data: workflowData } = useQuery({
     queryKey: ['task_workflow', task.id],
@@ -46,39 +48,65 @@ export default function TaskDetailPanel({ task, onClose }: Props) {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-hidden flex flex-col">
         {hasWorkflow ? (
-          <div className="space-y-5">
-            {/* Workflow steps */}
-            <div>
-              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">工作流步骤</h4>
-              {workflowData?.steps ? (
-                <WorkflowStepList taskId={task.id} steps={workflowData.steps} />
-              ) : (
-                <div className="text-sm text-gray-400 py-4">加载中...</div>
+          <>
+            {/* Tabs */}
+            <div className="flex border-b border-gray-200 shrink-0">
+              <button
+                onClick={() => setActiveTab('workflow')}
+                className={`flex-1 py-2.5 text-xs font-medium transition-colors ${
+                  activeTab === 'workflow'
+                    ? 'text-gray-900 border-b-2 border-gray-900'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                工作流
+              </button>
+              {showResultTab && (
+                <button
+                  onClick={() => setActiveTab('result')}
+                  className={`flex-1 py-2.5 text-xs font-medium transition-colors ${
+                    activeTab === 'result'
+                      ? 'text-gray-900 border-b-2 border-gray-900'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  执行结果
+                </button>
               )}
             </div>
 
-            {/* Result */}
-            {task.result && (
-              <div>
-                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">执行结果</h4>
-                <div className="text-sm text-gray-700 bg-gray-50 p-3 rounded-lg whitespace-pre-wrap">{task.result}</div>
-              </div>
-            )}
-
-            {/* Artifacts */}
-            {artifactsData?.artifacts && artifactsData.artifacts.length > 0 && (
-              <div>
-                <button
-                  onClick={() => setShowArtifacts(true)}
-                  className="text-sm px-3 py-1.5 bg-gray-900 text-white rounded-lg hover:bg-gray-800"
-                >
-                  查看产物 ({artifactsData.artifacts.length})
-                </button>
-              </div>
-            )}
-          </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              {activeTab === 'workflow' && (
+                <div className="space-y-4">
+                  {workflowData?.steps ? (
+                    <WorkflowStepList taskId={task.id} steps={workflowData.steps} />
+                  ) : (
+                    <div className="text-sm text-gray-400 py-4">加载中...</div>
+                  )}
+                </div>
+              )}
+              {activeTab === 'result' && (
+                <div className="space-y-4">
+                  {task.result && (
+                    <div className="text-sm text-gray-700 bg-gray-50 p-3 rounded-lg whitespace-pre-wrap">{task.result}</div>
+                  )}
+                  {artifactsData?.artifacts && artifactsData.artifacts.length > 0 && (
+                    <button
+                      onClick={() => setShowArtifacts(true)}
+                      className="flex items-center gap-1.5 text-sm px-3 py-1.5 bg-gray-900 text-white rounded-lg hover:bg-gray-800"
+                    >
+                      <FolderOpen size={14} /> 查看产物 ({artifactsData.artifacts.length})
+                    </button>
+                  )}
+                  {!task.result && (!artifactsData?.artifacts || artifactsData.artifacts.length === 0) && (
+                    <div className="text-sm text-gray-400 py-4">暂无执行结果</div>
+                  )}
+                </div>
+              )}
+            </div>
+          </>
         ) : (
           <div className="space-y-5">
             {/* Description */}

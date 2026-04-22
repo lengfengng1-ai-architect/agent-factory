@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from app.database import engine, Base, get_db
-from app.routers import agents, groups, tasks, chat, models, providers, group_chat, files, summaries
+from app.routers import agents, groups, tasks, chat, models, providers, group_chat, files, summaries, feishu
 from app.task_engine import start_scheduler
 
 Base.metadata.create_all(bind=engine)
@@ -82,6 +82,7 @@ app.include_router(models.router, prefix="/api", tags=["models"])
 app.include_router(providers.router, prefix="/api/providers", tags=["providers"])
 app.include_router(group_chat.router, prefix="/api/groups", tags=["group_chat"])
 app.include_router(summaries.router, prefix="/api", tags=["summaries"])
+app.include_router(feishu.router, prefix="/api", tags=["feishu"])
 
 
 @app.get("/api/health")

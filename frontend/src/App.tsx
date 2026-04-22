@@ -59,6 +59,12 @@ export default function App() {
         {tab === 'groups' && <GroupsPage />}
         {tab === 'tasks' && <TasksPage />}
       </main>
+
+      {(import.meta.env.PROD || import.meta.env.VITE_APP_VERSION) && (
+        <div className="fixed bottom-2 right-3 text-[11px] text-gray-400 pointer-events-none">
+          v{import.meta.env.VITE_APP_VERSION || 'dev'}
+        </div>
+      )}
     </div>
   )
 }

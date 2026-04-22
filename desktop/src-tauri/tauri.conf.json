@@ -1,0 +1,31 @@
+{
+  "productName": "Agent Factory",
+  "version": "0.1.0",
+  "identifier": "com.agentfactory.app",
+  "build": {
+    "frontendDist": "../../frontend/dist",
+    "devUrl": "http://localhost:8000"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["dmg"],
+    "icon": ["icons/icon.icns"],
+    "macOS": {
+      "minimumSystemVersion": "10.13"
+    },
+    "externalBin": ["binaries/agent-factory-backend", "binaries/redis-server"]
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDlEOTI0NURFMkQyQTlBQTVDQjY0NEYwNDU0NjdBODNDQjBDQ0U2M0ZGNkZDN0REOTI1QTY1QjAzQjIyM0ExMzZEMkYwQzY3",
+      "endpoints": ["https://github.com/lengfengng1-ai-architect/agent-factory/releases/latest/download/latest.json"]
+    }
+  }
+}

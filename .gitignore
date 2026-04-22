@@ -20,6 +20,7 @@ wheels/
 .installed.cfg
 *.egg
 backend/venv/
+backend/workspace/
 
 # Node
 node_modules/

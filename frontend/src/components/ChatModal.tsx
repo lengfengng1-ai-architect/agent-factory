@@ -9,6 +9,8 @@ interface Message {
   role: 'user' | 'assistant'
   content: string
   fileIds?: string[]
+  reasoning?: string
+  toolCalls?: string[]
 }
 
 interface Props {
@@ -133,7 +135,10 @@ export default function ChatModal({ agent, onClose }: Props) {
     setLoading(true)
 
     // Add placeholder assistant message
-    setMessages(prev => [...prev, { role: 'assistant', content: '' }])
+    setMessages(prev => [...prev, { role: 'assistant', content: '', reasoning: '', toolCalls: [] }])
+
+    let fullReasoning = ''
+    let toolCalls: string[] = []
 
     try {
       const res = await fetch(`/api/agents/${agent.id}/chat`, {
@@ -175,18 +180,51 @@ export default function ChatModal({ agent, onClose }: Props) {
           if (data === '[DONE]') continue
 
           try {
-            const parsed = JSON.parse(data) as { content?: string }
-            const chunk = parsed.content || ''
-            setMessages(prev => {
-              const last = prev[prev.length - 1]
-              if (last && last.role === 'assistant') {
-                return [
-                  ...prev.slice(0, -1),
-                  { ...last, content: last.content + chunk }
-                ]
-              }
-              return prev
-            })
+            const parsed = JSON.parse(data) as {
+              content?: string
+              reasoning?: string
+              tool_calls?: string[]
+              error?: string
+            }
+            if (parsed.error) {
+              setMessages(prev => {
+                const last = prev[prev.length - 1]
+                if (last && last.role === 'assistant') {
+                  return [...prev.slice(0, -1), { ...last, content: last.content + `\n[Error: ${parsed.error}]` }]
+                }
+                return prev
+              })
+              continue
+            }
+            if (parsed.reasoning) {
+              fullReasoning += parsed.reasoning
+              setMessages(prev => {
+                const last = prev[prev.length - 1]
+                if (last && last.role === 'assistant') {
+                  return [...prev.slice(0, -1), { ...last, reasoning: fullReasoning }]
+                }
+                return prev
+              })
+            }
+            if (parsed.content) {
+              setMessages(prev => {
+                const last = prev[prev.length - 1]
+                if (last && last.role === 'assistant') {
+                  return [...prev.slice(0, -1), { ...last, content: last.content + parsed.content }]
+                }
+                return prev
+              })
+            }
+            if (parsed.tool_calls && parsed.tool_calls.length > 0) {
+              toolCalls = [...toolCalls, ...parsed.tool_calls]
+              setMessages(prev => {
+                const last = prev[prev.length - 1]
+                if (last && last.role === 'assistant') {
+                  return [...prev.slice(0, -1), { ...last, toolCalls }]
+                }
+                return prev
+              })
+            }
           } catch {
             // ignore malformed JSON
           }
@@ -294,6 +332,21 @@ export default function ChatModal({ agent, onClose }: Props) {
                 </div>
               )}
               <div className="max-w-[80%]">
+                {msg.role === 'assistant' && msg.reasoning && (
+                  <div className="mb-1.5 p-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 max-w-full">
+                    <div className="font-medium mb-0.5 flex items-center gap-1">
+                      <span>🧠</span> 思考过程
+                    </div>
+                    <div className="whitespace-pre-wrap opacity-80">{msg.reasoning}</div>
+                  </div>
+                )}
+                {msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0 && (
+                  <div className="mb-1.5 flex flex-wrap gap-1">
+                    {msg.toolCalls.map((tc, i) => (
+                      <span key={i} className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">🔧 {tc}</span>
+                    ))}
+                  </div>
+                )}
                 <div
                   className={`px-4 py-2 rounded-2xl text-sm leading-relaxed ${
                     msg.role === 'user'

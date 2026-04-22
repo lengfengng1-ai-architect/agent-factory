@@ -15,6 +15,8 @@ interface GroupMessage {
   phase?: 'expert' | 'moderator'
   round?: number
   fileIds?: string[]
+  reasoning?: string
+  toolCalls?: string[]
 }
 
 interface Props {
@@ -75,6 +77,7 @@ export default function GroupChatModal({ group, onClose }: Props) {
         agent_name: m.agent_name || 'Agent',
         content: m.content,
         timestamp: m.timestamp,
+        done: true,
       })))
     }
   }, [historyData])
@@ -111,12 +114,12 @@ export default function GroupChatModal({ group, onClose }: Props) {
     }
   }, [group.id])
 
-  const updateAgentMessage = (agentId: number, content: string) => {
+  const updateAgentMessage = (agentId: number, content: string, reasoning?: string, toolCalls?: string[]) => {
     setMessages(prev => {
       const idx = prev.findIndex(m => m.agent_id === agentId && m.role === 'assistant' && !m.done)
       if (idx >= 0) {
         const next = [...prev]
-        next[idx] = { ...next[idx], content }
+        next[idx] = { ...next[idx], content, reasoning, toolCalls }
         return next
       }
       return prev
@@ -132,11 +135,17 @@ export default function GroupChatModal({ group, onClose }: Props) {
       agent_id: a.id,
       agent_name: a.name,
       content: '',
+      reasoning: '',
+      toolCalls: [] as string[],
     }))
     setMessages(prev => [...prev, ...agentPlaceholders])
 
     // Call each agent in parallel
     const promises = groupAgents.map(async (agent) => {
+      let fullContent = ''
+      let fullReasoning = ''
+      let toolCalls: string[] = []
+
       try {
         const res = await fetch(`/api/agents/${agent.id}/chat`, {
           method: 'POST',
@@ -150,14 +159,13 @@ export default function GroupChatModal({ group, onClose }: Props) {
         })
 
         if (!res.ok || !res.body) {
-          updateAgentMessage(agent.id, `Error: ${res.statusText}`)
+          updateAgentMessage(agent.id, `Error: ${res.statusText}`, fullReasoning, toolCalls)
           return
         }
 
         const reader = res.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
-        let fullContent = ''
 
         while (true) {
           const { done, value } = await reader.read()
@@ -174,21 +182,45 @@ export default function GroupChatModal({ group, onClose }: Props) {
             if (data === '[DONE]') continue
 
             try {
-              const parsed = JSON.parse(data) as { content?: string }
-              const chunk = parsed.content || ''
-              fullContent += chunk
-              updateAgentMessage(agent.id, fullContent)
+              const parsed = JSON.parse(data) as {
+                content?: string
+                reasoning?: string
+                tool_calls?: string[]
+                error?: string
+              }
+              if (parsed.error) {
+                fullContent += `\n[Error: ${parsed.error}]`
+                updateAgentMessage(agent.id, fullContent, fullReasoning, toolCalls)
+                continue
+              }
+              if (parsed.reasoning) {
+                fullReasoning += parsed.reasoning
+                updateAgentMessage(agent.id, fullContent, fullReasoning, toolCalls)
+              }
+              if (parsed.content) {
+                fullContent += parsed.content
+                updateAgentMessage(agent.id, fullContent, fullReasoning, toolCalls)
+              }
+              if (parsed.tool_calls && parsed.tool_calls.length > 0) {
+                toolCalls = [...toolCalls, ...parsed.tool_calls]
+                updateAgentMessage(agent.id, fullContent, fullReasoning, toolCalls)
+              }
             } catch {
-              // ignore
+              // ignore malformed JSON
             }
           }
         }
       } catch (err: any) {
-        updateAgentMessage(agent.id, `Error: ${err.message}`)
+        updateAgentMessage(agent.id, `Error: ${err.message}`, fullReasoning, toolCalls)
       }
     })
 
     await Promise.all(promises)
+
+    // Mark all pending assistant messages as done
+    setMessages(prev => prev.map(m =>
+      m.role === 'assistant' && !m.done ? { ...m, done: true } : m
+    ))
   }
 
   const handleGroupStream = async (text: string) => {
@@ -238,7 +270,28 @@ export default function GroupChatModal({ group, onClose }: Props) {
           if (data === '[DONE]') continue
 
           try {
-            const parsed = JSON.parse(data) as { agent_id: number; agent_name: string; content: string; done: boolean; phase?: string; round?: number }
+            const parsed = JSON.parse(data) as {
+              agent_id: number
+              agent_name: string
+              content: string
+              done: boolean
+              phase?: string
+              round?: number
+              error?: string
+            }
+
+            if (parsed.error) {
+              setMessages(prev => {
+                const next = [...prev]
+                const idx = next.findIndex(m => m.agent_id === parsed.agent_id && m.role === 'assistant' && !m.done)
+                if (idx >= 0) {
+                  next[idx] = { ...next[idx], content: next[idx].content + `\n[Error: ${parsed.error}]` }
+                  return next
+                }
+                return prev
+              })
+              continue
+            }
 
             if (parsed.done) {
               // Finalize this agent's message
@@ -395,6 +448,21 @@ export default function GroupChatModal({ group, onClose }: Props) {
                     <span className="text-sm font-medium text-gray-900">{agent.name}</span>
                   </div>
                   <div className="text-sm text-gray-700 whitespace-pre-wrap min-h-[3rem]">
+                    {latestMsg?.reasoning && (
+                      <div className="mb-2 p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
+                        <div className="font-medium mb-1 flex items-center gap-1">
+                          <span>🧠</span> 思考过程
+                        </div>
+                        <div className="whitespace-pre-wrap opacity-80">{latestMsg.reasoning}</div>
+                      </div>
+                    )}
+                    {latestMsg?.toolCalls && latestMsg.toolCalls.length > 0 && (
+                      <div className="mb-2 flex flex-wrap gap-1">
+                        {latestMsg.toolCalls.map((tc, i) => (
+                          <span key={i} className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">🔧 {tc}</span>
+                        ))}
+                      </div>
+                    )}
                     {latestMsg?.content || (loading ? (
                       <span className="inline-block w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
                     ) : 'Waiting...')}
@@ -449,6 +517,21 @@ export default function GroupChatModal({ group, onClose }: Props) {
                         {msg.phase && ` · ${msg.phase === 'expert' ? '专家' : '主持人'}`}
                         {msg.round && ` · Round ${msg.round}`}
                       </div>
+                      {msg.reasoning && (
+                        <div className="mb-1.5 p-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 max-w-full">
+                          <div className="font-medium mb-0.5 flex items-center gap-1">
+                            <span>🧠</span> 思考过程
+                          </div>
+                          <div className="whitespace-pre-wrap opacity-80">{msg.reasoning}</div>
+                        </div>
+                      )}
+                      {msg.toolCalls && msg.toolCalls.length > 0 && (
+                        <div className="mb-1.5 flex flex-wrap gap-1">
+                          {msg.toolCalls.map((tc, i) => (
+                            <span key={i} className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">🔧 {tc}</span>
+                          ))}
+                        </div>
+                      )}
                       <div className="px-4 py-2 rounded-2xl bg-gray-100 text-gray-900 text-sm rounded-bl-md whitespace-pre-wrap">
                         {msg.content || (loading && idx === messages.length - 1 ? (
                           <span className="inline-block w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />

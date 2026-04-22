@@ -8,6 +8,18 @@ from app.task_engine import submit_task, get_task_progress, get_max_concurrent_t
 router = APIRouter()
 
 
+@router.get("/concurrency")
+def get_concurrency_config():
+    return {"max_concurrent_tasks": get_max_concurrent_tasks()}
+
+
+@router.put("/concurrency")
+def update_concurrency_config(payload: dict):
+    n = payload.get("max_concurrent_tasks", 3)
+    set_max_concurrent_tasks(int(n))
+    return {"max_concurrent_tasks": get_max_concurrent_tasks()}
+
+
 @router.get("/", response_model=List[schemas.TaskResponse])
 def list_tasks(
     status: Optional[str] = None,
@@ -91,15 +103,3 @@ def get_task_status(task_id: int, db: Session = Depends(get_db)):
         "progress": progress,
         "result": task.result,
     }
-
-
-@router.get("/concurrency")
-def get_concurrency_config():
-    return {"max_concurrent_tasks": get_max_concurrent_tasks()}
-
-
-@router.put("/concurrency")
-def update_concurrency_config(payload: dict):
-    n = payload.get("max_concurrent_tasks", 3)
-    set_max_concurrent_tasks(n)
-    return {"max_concurrent_tasks": get_max_concurrent_tasks()}

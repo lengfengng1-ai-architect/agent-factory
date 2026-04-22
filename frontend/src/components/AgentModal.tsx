@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, RefreshCw } from 'lucide-react'
 import { providerApi } from '../api/client'
 import type { Agent, Provider } from '../types'
+import { FeishuStatus } from './FeishuStatus'
 
 interface Props {
   agent?: Agent | null
@@ -283,53 +284,32 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
               <span className="text-sm text-gray-700">启用飞书机器人</span>
             </label>
             {enableFeishu && (
-              <div className="space-y-3 pl-6">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">App ID</label>
-                  <input
-                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
-                    value={feishuAppId}
-                    onChange={e => setFeishuAppId(e.target.value)}
-                    placeholder="cli_xxxxxxxxxxxx"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">App Secret</label>
-                  <input
-                    type="password"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
-                    value={feishuAppSecret}
-                    onChange={e => setFeishuAppSecret(e.target.value)}
-                    placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                  />
-                </div>
-                {agent && (
+              <>
+                <p className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                  当前使用 WebSocket 长连接模式，无需公网域名和 Webhook 配置。保存后自动连接飞书服务器。
+                </p>
+                <div className="space-y-3 pl-6">
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Webhook URL</label>
-                    <div className="flex gap-1">
-                      <input
-                        readOnly
-                        className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-gray-50 text-gray-600 font-mono"
-                        value={`${window.location.origin}/api/feishu/webhook`}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          navigator.clipboard.writeText(`${window.location.origin}/api/feishu/webhook`)
-                          alert('已复制到剪贴板')
-                        }}
-                        className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-lg border border-gray-300"
-                      >
-                        复制
-                      </button>
-                    </div>
-                    <p className="mt-1 text-[10px] text-gray-400">
-                      将此 URL 粘贴到飞书开放平台 → 事件订阅 → 请求地址配置中
-                      （所有 Agent 共享同一个 Webhook URL，通过 App ID 自动识别）
-                    </p>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">App ID</label>
+                    <input
+                      className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+                      value={feishuAppId}
+                      onChange={e => setFeishuAppId(e.target.value)}
+                      placeholder="cli_xxxxxxxxxxxx"
+                    />
                   </div>
-                )}
-              </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">App Secret</label>
+                    <input
+                      type="password"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+                      value={feishuAppSecret}
+                      onChange={e => setFeishuAppSecret(e.target.value)}
+                      placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    />
+                  </div>
+                </div>
+              </>
             )}
           </div>
 
@@ -338,6 +318,9 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
             <textarea className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono" rows={3} value={config} onChange={e => setConfig(e.target.value)} />
             <p className="mt-1 text-xs text-gray-500">工具配置会自动合并到此处，也可手动添加其他配置</p>
           </div>
+          {agent && enableFeishu && (
+            <FeishuStatus agentId={agent.id} />
+          )}
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-50">Cancel</button>
             <button type="submit" className="px-4 py-2 text-sm rounded-lg bg-gray-900 text-white hover:bg-gray-800">Save</button>

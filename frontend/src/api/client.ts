@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Agent, Group, Task, TaskStatus, Provider, ProviderModel, ChatFile } from '../types';
+import type { Agent, Group, Task, TaskStatus, Provider, ProviderModel, ChatFile, FileSummary } from '../types';
 
 const api = axios.create({
   baseURL: '/api',
@@ -87,4 +87,13 @@ export const fileApi = {
     api.delete(`/agents/${agentId}/files/${fileId}`).then(r => r.data),
   deleteGroup: (groupId: number, fileId: string) =>
     api.delete(`/groups/${groupId}/files/${fileId}`).then(r => r.data),
+};
+
+export const summaryApi = {
+  list: (params?: { agent_id?: number; group_id?: number; search?: string; limit?: number; offset?: number }) =>
+    api.get<{ total: number; limit: number; offset: number; items: FileSummary[] }>('/summaries', { params }).then(r => r.data),
+  get: (id: number) =>
+    api.get<FileSummary>(`/summaries/${id}`).then(r => r.data),
+  delete: (id: number) =>
+    api.delete(`/summaries/${id}`).then(r => r.data),
 };

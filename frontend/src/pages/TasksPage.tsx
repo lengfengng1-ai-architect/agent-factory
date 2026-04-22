@@ -66,6 +66,7 @@ export default function TasksPage() {
   })
   const update = useMutation({ mutationFn: ({ id, data }: { id: number; data: Partial<Task> }) => taskApi.update(id, data), onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }) })
   const execute = useMutation({ mutationFn: taskApi.execute, onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }) })
+  const remove = useMutation({ mutationFn: taskApi.delete, onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }) })
   const setConcurrency = useMutation({
     mutationFn: taskApi.setConcurrency,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['taskConcurrency'] }),
@@ -147,6 +148,10 @@ export default function TasksPage() {
                         isSelected={selectedTask?.id === task.id}
                         onSelect={t => setSelectedTask(t)}
                         onEdit={t => { setModalTask(t); setModalMode('view'); setModalOpen(true) }}
+                        onDelete={t => {
+                          remove.mutate(t.id)
+                          if (selectedTask?.id === t.id) setSelectedTask(null)
+                        }}
                       />
                     ))}
                   </Column>

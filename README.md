@@ -71,6 +71,7 @@ graph TD
 | 多供应商 | 支持 Kimi / OpenAI / DeepSeek / 阿里云百炼 / 火山方舟 / Ollama / Custom |
 | 独立配置 | 每个 Agent 独立设置 Provider、Model、API Key、System Prompt |
 | 实时对话 | SSE 流式传输，打字机式输出，支持历史记录持久化 |
+| **Thinking 模式** | 支持 DeepSeek reasoner / Kimi K2.6 的思考过程展示 |
 
 ### 🔌 Provider 管理中心
 
@@ -114,6 +115,7 @@ flowchart LR
 - **人工确认（Checkpoint）**：关键节点可配置人工确认，默认自动连续执行
 - **自动执行**：有执行者的 Task 拖入 In Progress 后自动触发执行
 - **并发控制**：可配置最大同时执行任务数，超出自动排队
+- **删除任务**：Task 卡片支持删除，级联清理关联的工作流步骤
 
 ### 📎 多文件上传与上下文管理
 
@@ -153,8 +155,8 @@ Agent / Group 聊天支持上传文件（txt / pdf / md / 代码等），自动�
 
 | 层级 | 技术 |
 |------|------|
-| **后端** | Python 3.11 + FastAPI + SQLAlchemy + SQLite + Redis + LangChain + LangChain-OpenAI |
-| **前端** | React 19 + TypeScript + Vite + Tailwind CSS v4 + TanStack Query + Zustand + Axios + Lucide React |
+| **后端** | Python 3.11 + FastAPI + SQLAlchemy + SQLite + Redis + LangChain 1.x |
+| **前端** | React 19 + TypeScript + Vite + Tailwind CSS v4 + TanStack Query + Axios + Lucide React |
 | **实时通信** | Server-Sent Events (SSE) |
 | **拖拽** | @dnd-kit |
 | **架构** | REST API + SQLite 本地存储 + Redis 缓存，前后端通过 Vite Proxy 直连 |
@@ -231,19 +233,23 @@ cd frontend && npm run dev
 ```
 ├── backend/
 │   ├── app/
-│   │   ├── main.py          # FastAPI 入口
-│   │   ├── models.py        # SQLAlchemy 模型
-│   │   ├── schemas.py       # Pydantic 校验
-│   │   ├── redis_client.py  # Redis 聊天记录
+│   │   ├── main.py              # FastAPI 入口
+│   │   ├── models.py            # SQLAlchemy 模型（含 SafeJSON）
+│   │   ├── schemas.py           # Pydantic 校验
+│   │   ├── redis_client.py      # Redis 聊天记录
+│   │   ├── llm_factory.py       # Provider-specific LLM 工厂
+│   │   ├── task_engine.py       # 任务执行引擎
+│   │   ├── workflow_engine.py   # 工作流引擎
 │   │   └── routers/
-│   │       ├── agents.py    # Agent CRUD
-│   │       ├── chat.py      # Agent 单聊 SSE
-│   │       ├── group_chat.py # Group 多模式聊天
-│   │       ├── groups.py    # Group CRUD
-│   │       ├── models.py    # 模型列表 fallback
-│   │       ├── providers.py # Provider CRUD + 发现
-│   │       └── tasks.py     # Task CRUD
-│   └── run.sh               # 后端启动脚本
+│   │       ├── agents.py        # Agent CRUD
+│   │       ├── chat.py          # Agent 单聊 SSE
+│   │       ├── group_chat.py    # Group 多模式聊天
+│   │       ├── groups.py        # Group CRUD
+│   │       ├── models.py        # 模型列表 fallback
+│   │       ├── providers.py     # Provider CRUD + 发现
+│   │       ├── tasks.py         # Task CRUD
+│   │       └── workflow_steps.py # 工作流步骤管理
+│   └── run.sh                   # 后端启动脚本
 ├── frontend/
 │   └── src/
 │       ├── pages/
@@ -257,9 +263,11 @@ cd frontend && npm run dev
 │           ├── GroupChatModal.tsx
 │           ├── GroupModal.tsx
 │           ├── ProviderModal.tsx
-│           └── TaskCard.tsx
+│           ├── TaskCard.tsx
+│           ├── TaskModal.tsx
+│           └── TaskDetailPanel.tsx
 └── .hermes/
-    └── plans/               # 开发计划文件（git-ignored）
+    └── plans/                   # 开发计划文件（git-ignored）
 ```
 
 ---
@@ -295,7 +303,7 @@ cd frontend && npm run dev
 | 端点 | 说明 |
 |------|------|
 | `GET/POST /api/tasks` | Task 列表 / 创建 |
-| `GET/PUT/DELETE /api/tasks/{id}` | 获取 / 更新 / 删除 |
+| `GET/PUT/DELETE /api/tasks/{id}` | 获取 / 更新 / 删除（级联清理 workflow_steps） |
 | `POST /api/tasks/{id}/execute` | 触发任务执行 |
 | `POST /api/tasks/{id}/breakdown` | LLM 自动拆解为工作流 |
 | `GET /api/tasks/{id}/workflow/progress` | 获取工作流执行进度 |

@@ -1,16 +1,17 @@
 import { useDraggable } from '@dnd-kit/core'
 import type { Task } from '../types'
-import { GripVertical, Pencil } from 'lucide-react'
+import { GripVertical, Pencil, Trash2 } from 'lucide-react'
 
 interface Props {
   task: Task
   onSelect: (task: Task) => void
   onEdit: (task: Task) => void
+  onDelete?: (task: Task) => void
   isSelected?: boolean
   isOverlay?: boolean
 }
 
-export default function TaskCard({ task, onSelect, onEdit, isSelected, isOverlay }: Props) {
+export default function TaskCard({ task, onSelect, onEdit, onDelete, isSelected, isOverlay }: Props) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id: `task-${task.id}`,
     data: task,
@@ -62,16 +63,32 @@ export default function TaskCard({ task, onSelect, onEdit, isSelected, isOverlay
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-1">
               <h4 className="text-sm font-medium text-gray-900 truncate">{task.title}</h4>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onEdit(task)
-                }}
-                className="shrink-0 text-gray-400 hover:text-gray-600 p-0.5 rounded hover:bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity"
-                title="编辑"
-              >
-                <Pencil size={12} />
-              </button>
+              <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onEdit(task)
+                  }}
+                  className="text-gray-400 hover:text-gray-600 p-0.5 rounded hover:bg-gray-100"
+                  title="编辑"
+                >
+                  <Pencil size={12} />
+                </button>
+                {onDelete && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (confirm(`确定要删除任务「${task.title}」吗？`)) {
+                        onDelete(task)
+                      }
+                    }}
+                    className="text-gray-400 hover:text-red-600 p-0.5 rounded hover:bg-red-50"
+                    title="删除"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                )}
+              </div>
             </div>
             <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{task.description}</p>
 

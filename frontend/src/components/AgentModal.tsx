@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, RefreshCw } from 'lucide-react'
 import { providerApi } from '../api/client'
 import type { Agent, Provider } from '../types'
-import { FeishuStatus } from './FeishuStatus'
+import FeishuConfigModal from './FeishuConfigModal'
 
 interface Props {
   agent?: Agent | null
@@ -21,9 +21,7 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
   const [enableBrowsing, setEnableBrowsing] = useState(false)
   const [enableFileAccess, setEnableFileAccess] = useState(false)
   const [fileAccessRoot, setFileAccessRoot] = useState('./workspace')
-  const [enableFeishu, setEnableFeishu] = useState(false)
-  const [feishuAppId, setFeishuAppId] = useState('')
-  const [feishuAppSecret, setFeishuAppSecret] = useState('')
+  const [showFeishuModal, setShowFeishuModal] = useState(false)
   const [model, setModel] = useState('')
   const [apiUrl, setApiUrl] = useState('')
   const [apiKey, setApiKey] = useState('')
@@ -60,10 +58,7 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
       setEnableBrowsing(!!agent.config?.enable_browsing)
       setEnableFileAccess(!!agent.config?.enable_file_access)
       setFileAccessRoot(agent.config?.file_access_root || './workspace')
-      const feishuCfg = agent.config?.feishu || {}
-      setEnableFeishu(!!feishuCfg.enabled)
-      setFeishuAppId(feishuCfg.app_id || '')
-      setFeishuAppSecret(feishuCfg.app_secret || '')
+
 
       if (providers) {
         const matched = providers.find(p => p.key === agent.provider) || null
@@ -81,9 +76,7 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
       setEnableBrowsing(false)
       setEnableFileAccess(false)
       setFileAccessRoot('./workspace')
-      setEnableFeishu(false)
-      setFeishuAppId('')
-      setFeishuAppSecret('')
+      setShowFeishuModal(false)
     }
   }, [agent, providers])
 
@@ -125,15 +118,10 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
     e.preventDefault()
     let parsed: Record<string, unknown> = {}
     try { parsed = JSON.parse(config) } catch { /* ignore */ }
-    const feishuConfig = enableFeishu
-      ? { feishu: { enabled: true, app_id: feishuAppId, app_secret: feishuAppSecret } }
-      : { feishu: { enabled: false } }
-
     const toolConfig: Record<string, unknown> = {
       ...parsed,
       enable_browsing: enableBrowsing,
       enable_file_access: enableFileAccess,
-      ...feishuConfig,
     }
     if (enableFileAccess) {
       toolConfig.file_access_root = fileAccessRoot
@@ -156,6 +144,7 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
   const hasModels = models && models.length > 0
 
   return (
+    <>
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={onClose}>
       <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <h2 className="text-lg font-bold mb-4">{agent ? 'Edit Agent' : 'New Agent'}</h2>
@@ -272,55 +261,20 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
             )}
           </div>
 
-          <div className="border border-gray-200 rounded-lg p-3 space-y-3">
-            <div className="text-sm font-medium text-gray-900">飞书机器人配置</div>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={enableFeishu}
-                onChange={e => setEnableFeishu(e.target.checked)}
-                className="rounded border-gray-300"
-              />
-              <span className="text-sm text-gray-700">启用飞书机器人</span>
-            </label>
-            {enableFeishu && (
-              <>
-                <p className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded">
-                  当前使用 WebSocket 长连接模式，无需公网域名和 Webhook 配置。保存后自动连接飞书服务器。
-                </p>
-                <div className="space-y-3 pl-6">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">App ID</label>
-                    <input
-                      className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
-                      value={feishuAppId}
-                      onChange={e => setFeishuAppId(e.target.value)}
-                      placeholder="cli_xxxxxxxxxxxx"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">App Secret</label>
-                    <input
-                      type="password"
-                      className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
-                      value={feishuAppSecret}
-                      onChange={e => setFeishuAppSecret(e.target.value)}
-                      placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                    />
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Config (JSON)</label>
-            <textarea className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono" rows={3} value={config} onChange={e => setConfig(e.target.value)} />
-            <p className="mt-1 text-xs text-gray-500">工具配置会自动合并到此处，也可手动添加其他配置</p>
-          </div>
-          {agent && enableFeishu && (
-            <FeishuStatus agentId={agent.id} />
+          {agent && (
+            <button
+              type="button"
+              onClick={() => setShowFeishuModal(true)}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm rounded-lg border border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition-colors"
+            >
+              <span>🤖</span>
+              <span>配置飞书机器人</span>
+              {(agent.config as Record<string, any>)?.feishu?.enabled && (
+                <span className="ml-1 w-2 h-2 rounded-full bg-green-500" title="已启用" />
+              )}
+            </button>
           )}
+
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-50">Cancel</button>
             <button type="submit" className="px-4 py-2 text-sm rounded-lg bg-gray-900 text-white hover:bg-gray-800">Save</button>
@@ -328,5 +282,10 @@ export default function AgentModal({ agent, onClose, onSave }: Props) {
         </form>
       </div>
     </div>
+
+    {agent && showFeishuModal && (
+      <FeishuConfigModal agent={agent} onClose={() => setShowFeishuModal(false)} />
+    )}
+  </>
   )
 }

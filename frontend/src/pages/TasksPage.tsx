@@ -52,7 +52,16 @@ export default function TasksPage() {
     queryFn: () => taskApi.getConcurrency(),
   })
 
-  const create = useMutation({ mutationFn: taskApi.create, onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }) })
+  const create = useMutation({
+    mutationFn: taskApi.create,
+    onSuccess: (task) => {
+      qc.invalidateQueries({ queryKey: ['tasks'] })
+      // Auto-execute when created with an assignee
+      if (task.assignee_id) {
+        execute.mutate(task.id)
+      }
+    }
+  })
   const update = useMutation({ mutationFn: ({ id, data }: { id: number; data: Partial<Task> }) => taskApi.update(id, data), onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }) })
   const execute = useMutation({ mutationFn: taskApi.execute, onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }) })
   const setConcurrency = useMutation({

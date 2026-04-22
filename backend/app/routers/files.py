@@ -181,6 +181,46 @@ def delete_agent_file(agent_id: int, file_id: str, db: Session = Depends(get_db)
     return {"message": "File deleted", "file_id": file_id}
 
 
+@router.get("/tasks/{task_id}/artifacts")
+def list_task_artifacts(task_id: int):
+    """List artifact files for a workflow task."""
+    import os
+    task_dir = os.path.join(os.path.dirname(__file__), "..", "..", "workspace", "tasks", str(task_id))
+    if not os.path.exists(task_dir):
+        return {"artifacts": []}
+    
+    artifacts = []
+    for fname in sorted(os.listdir(task_dir)):
+        fpath = os.path.join(task_dir, fname)
+        if os.path.isfile(fpath):
+            artifacts.append({
+                "name": fname,
+                "path": fpath,
+                "size": os.path.getsize(fpath),
+            })
+    return {"artifacts": artifacts}
+
+
+@router.get("/artifacts/read")
+def read_artifact(path: str):
+    """Read content of an artifact file."""
+    import os
+    # Security: ensure path is within workspace
+    abs_path = os.path.abspath(path)
+    workspace_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "workspace"))
+    if not abs_path.startswith(workspace_root):
+        raise HTTPException(status_code=403, detail="Access denied")
+    if not os.path.exists(abs_path) or not os.path.isfile(abs_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    try:
+        with open(abs_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        return {"content": content, "path": abs_path}
+    except UnicodeDecodeError:
+        return {"content": "[Binary file]", "path": abs_path}
+
+
 @router.delete("/groups/{group_id}/files/{file_id}")
 def delete_group_file(group_id: int, file_id: str, db: Session = Depends(get_db)):
     """Delete a file from a group's chat files."""

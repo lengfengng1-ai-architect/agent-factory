@@ -38,6 +38,28 @@ export interface Task {
   file_root_dir?: string;
   created_at: string;
   updated_at?: string;
+  workflow_plan?: string;
+  workflow_status?: string;
+  total_steps?: number;
+  completed_steps?: number;
+}
+
+export interface WorkflowStep {
+  id: number;
+  task_id: number;
+  name: string;
+  description: string;
+  status: string;
+  order_index: number;
+  depends_on: number[];
+  agent_id: number | null;
+  checkpoint: boolean;
+  result: string;
+  artifact_path: string;
+  retry_count: number;
+  started_at?: string;
+  completed_at?: string;
+  created_at: string;
 }
 
 export interface Provider {

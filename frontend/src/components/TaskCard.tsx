@@ -45,6 +45,37 @@ export default function TaskCard({ task, onEdit }: Props) {
           <div className="flex-1 min-w-0">
             <h4 className="text-sm font-medium text-gray-900 truncate">{task.title}</h4>
             <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{task.description}</p>
+
+            {/* Workflow progress */}
+            {task.workflow_plan && task.total_steps !== undefined && task.total_steps > 0 && (
+              <div className="mt-2">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] text-gray-500">工作流</span>
+                  <span className="text-[10px] text-gray-500">{task.completed_steps ?? 0}/{task.total_steps}</span>
+                </div>
+                <div className="h-1 w-full bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-indigo-500 rounded-full transition-all"
+                    style={{ width: `${Math.round(((task.completed_steps ?? 0) / task.total_steps) * 100)}%` }}
+                  />
+                </div>
+                <div className="mt-1">
+                  {task.workflow_status === 'waiting_feedback' && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-orange-100 text-orange-700">待确认</span>
+                  )}
+                  {task.workflow_status === 'running' && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700">执行中</span>
+                  )}
+                  {task.workflow_status === 'completed' && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-green-100 text-green-700">已完成</span>
+                  )}
+                  {task.workflow_status === 'failed' && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-red-100 text-red-700">失败</span>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="mt-2 flex items-center gap-2 flex-wrap">
               {task.assignee_id ? (
                 <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Agent, Group, Task, TaskStatus, Provider, ProviderModel, ChatFile, FileSummary } from '../types';
+import type { Agent, Group, Task, TaskStatus, Provider, ProviderModel, ChatFile, FileSummary, WorkflowStep } from '../types';
 
 const api = axios.create({
   baseURL: '/api',
@@ -33,6 +33,18 @@ export const taskApi = {
   status: (id: number) => api.get<{ task_id: number; status: string; progress: number; result: string }>(`/tasks/${id}/status`).then(r => r.data),
   getConcurrency: () => api.get<{ max_concurrent_tasks: number }>('/tasks/concurrency').then(r => r.data),
   setConcurrency: (n: number) => api.put('/tasks/concurrency', { max_concurrent_tasks: n }).then(r => r.data),
+  getSteps: (id: number) =>
+    api.get<{ steps: WorkflowStep[] }>(`/tasks/${id}/steps`).then(r => r.data),
+  breakdown: (id: number) =>
+    api.post<{ task_id: number; steps_count: number; steps: { id: number; name: string; order_index: number; checkpoint: boolean }[] }>(`/tasks/${id}/breakdown`).then(r => r.data),
+  getWorkflowProgress: (id: number) =>
+    api.get<{ task_id: number; workflow_status: string; progress: number; total_steps: number; completed_steps: number; waiting_steps: number; failed_steps: number; running_steps: number; steps: WorkflowStep[] }>(`/tasks/${id}/workflow/progress`).then(r => r.data),
+  confirmStep: (taskId: number, stepId: number) =>
+    api.post<{ success: boolean; message: string }>(`/tasks/${taskId}/steps/${stepId}/confirm`).then(r => r.data),
+  retryStep: (taskId: number, stepId: number) =>
+    api.post<{ success: boolean; message: string }>(`/tasks/${taskId}/steps/${stepId}/retry`).then(r => r.data),
+  skipStep: (taskId: number, stepId: number) =>
+    api.post<{ success: boolean; message: string }>(`/tasks/${taskId}/steps/${stepId}/skip`).then(r => r.data),
 };
 
 export const providerApi = {
@@ -98,6 +110,10 @@ export const fileApi = {
     api.delete(`/agents/${agentId}/files/${fileId}`).then(r => r.data),
   deleteGroup: (groupId: number, fileId: string) =>
     api.delete(`/groups/${groupId}/files/${fileId}`).then(r => r.data),
+  listTaskArtifacts: (taskId: number) =>
+    api.get<{ artifacts: { name: string; path: string; size: number }[] }>(`/files/tasks/${taskId}/artifacts`).then(r => r.data),
+  readArtifact: (path: string) =>
+    api.get<{ content: string; path: string }>(`/files/artifacts/read`, { params: { path } }).then(r => r.data),
 };
 
 export const summaryApi = {

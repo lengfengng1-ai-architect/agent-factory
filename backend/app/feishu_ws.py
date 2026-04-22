@@ -128,6 +128,13 @@ def start_feishu_ws(agent: models.Agent) -> bool:
 
         def _run():
             try:
+                # lark-oapi 在模块导入时缓存了主线程的 event loop，
+                # daemon 线程中需要创建自己的 loop 并替换模块全局变量
+                import asyncio
+                import lark_oapi.ws.client as _ws_mod
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+                _ws_mod.loop = new_loop
                 cli.start()
             except Exception as e:
                 print(f"Feishu WS for agent {agent.id} error: {e}")

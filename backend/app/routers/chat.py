@@ -152,15 +152,22 @@ async def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(ge
             return event
 
         def _extract_reasoning(msg) -> str:
-            """Extract reasoning content from message."""
-            # Provider-specific: DeepSeek / Kimi / OpenAI o1
-            reasoning = getattr(msg, 'reasoning_content', None)
-            if reasoning:
-                return reasoning
+            """Extract incremental reasoning content from message chunk.
+
+            Provider-specific extraction order:
+            1. additional_kwargs['reasoning_content'] — DeepSeek (ChatDeepSeek), Kimi (ChatKimi)
+            2. reasoning_content attribute — future native support
+            3. content_blocks — OpenAI o1-style reasoning blocks
+            """
+            # DeepSeek / Kimi store reasoning in additional_kwargs as incremental tokens
             reasoning = msg.additional_kwargs.get('reasoning_content', '')
             if reasoning:
                 return reasoning
-            # Check content_blocks for ReasoningContentBlock
+            # Native attribute (for future provider subclasses)
+            reasoning = getattr(msg, 'reasoning_content', None)
+            if reasoning:
+                return reasoning
+            # OpenAI o1-style content blocks
             blocks = getattr(msg, 'content_blocks', None) or []
             for block in blocks:
                 if isinstance(block, dict) and block.get('type') == 'reasoning':
@@ -183,13 +190,11 @@ async def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(ge
                     if not isinstance(msg, AIMessage):
                         continue
 
-                    # Stream reasoning content
+                    # Stream reasoning content (incremental tokens from provider)
                     reasoning = _extract_reasoning(msg)
-                    if reasoning and reasoning != reasoning_buffer:
-                        new_reasoning = reasoning[len(reasoning_buffer):]
-                        reasoning_buffer = reasoning
-                        if new_reasoning:
-                            yield f"data: {json.dumps({'reasoning': new_reasoning}, ensure_ascii=False)}\n\n"
+                    if reasoning:
+                        reasoning_buffer += reasoning
+                        yield f"data: {json.dumps({'reasoning': reasoning}, ensure_ascii=False)}\n\n"
 
                     # Stream text content
                     if msg.content:
@@ -203,13 +208,11 @@ async def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(ge
             else:
                 # No tools: simple LLM streaming (token-level)
                 async for chunk in llm.astream(messages):
-                    # Stream reasoning content
+                    # Stream reasoning content (incremental tokens from provider)
                     reasoning = _extract_reasoning(chunk)
-                    if reasoning and reasoning != reasoning_buffer:
-                        new_reasoning = reasoning[len(reasoning_buffer):]
-                        reasoning_buffer = reasoning
-                        if new_reasoning:
-                            yield f"data: {json.dumps({'reasoning': new_reasoning}, ensure_ascii=False)}\n\n"
+                    if reasoning:
+                        reasoning_buffer += reasoning
+                        yield f"data: {json.dumps({'reasoning': reasoning}, ensure_ascii=False)}\n\n"
 
                     # Stream text content
                     if chunk.content:

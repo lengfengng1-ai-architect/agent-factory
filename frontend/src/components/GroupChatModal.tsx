@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Bot, Send, X, Users, Maximize2, Minimize2, FileText } from 'lucide-react'
-import { agentApi, groupChatApi, fileApi } from '../api/client'
+import { Bot, Send, X, Users, Maximize2, Minimize2, FileText, BookOpen } from 'lucide-react'
+import { agentApi, groupChatApi, fileApi, summaryApi } from '../api/client'
 import type { Group, ChatFile } from '../types'
 import ChatFileBar, { type FileMode } from './ChatFileBar'
 
@@ -36,6 +36,8 @@ export default function GroupChatModal({ group, onClose }: Props) {
     return (saved as FileMode) || 'auto'
   })
   const bottomRef = useRef<HTMLDivElement>(null)
+  const [showSummaryPanel, setShowSummaryPanel] = useState(false)
+  const [selectedSummaries, setSelectedSummaries] = useState<number[]>([])
 
   const { data: agents } = useQuery({ queryKey: ['agents'], queryFn: agentApi.list })
   const groupAgents = agents?.filter(a => group.agent_ids?.includes(a.id)) || []
@@ -50,6 +52,12 @@ export default function GroupChatModal({ group, onClose }: Props) {
     queryKey: ['group_chat_files', group.id],
     queryFn: () => fileApi.listGroup(group.id),
     enabled: !!group.id,
+  })
+
+  const { data: summariesData } = useQuery({
+    queryKey: ['summaries', group.id],
+    queryFn: () => summaryApi.list({ group_id: group.id, limit: 20 }),
+    enabled: !!group.id && showSummaryPanel,
   })
 
   useEffect(() => {
@@ -306,7 +314,7 @@ export default function GroupChatModal({ group, onClose }: Props) {
 
   return (
     <div className={`fixed inset-0 bg-black/40 z-50 ${isMaximized ? '' : 'flex items-center justify-center'}`} onClick={onClose}>
-      <div className={`bg-white rounded-xl shadow-xl flex flex-col overflow-hidden transition-all duration-200 ${isMaximized ? 'absolute inset-4' : `${isParallel ? 'w-full max-w-4xl h-[85vh]' : 'w-full max-w-lg h-[80vh]'}`}`} onClick={e => e.stopPropagation()}>
+      <div className={`relative bg-white rounded-xl shadow-xl flex flex-col overflow-hidden transition-all duration-200 ${isMaximized ? 'absolute inset-4' : `${isParallel ? 'w-full max-w-4xl h-[85vh]' : 'w-full max-w-lg h-[80vh]'}`}`} onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
           <div className="flex items-center gap-3">
@@ -327,6 +335,13 @@ export default function GroupChatModal({ group, onClose }: Props) {
             </div>
           </div>
           <div className="flex items-center gap-1">
+            <button
+              onClick={() => setShowSummaryPanel(v => !v)}
+              className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500"
+              title="摘要库"
+            >
+              <BookOpen size={18} />
+            </button>
             <button onClick={() => setIsMaximized(v => !v)} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500" title={isMaximized ? 'Minimize' : 'Maximize'}>
               {isMaximized ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
             </button>
@@ -425,6 +440,45 @@ export default function GroupChatModal({ group, onClose }: Props) {
               </div>
             ))}
             <div ref={bottomRef} />
+          </div>
+        )}
+
+        {showSummaryPanel && (
+          <div className="absolute right-0 top-[57px] bottom-[140px] w-64 bg-white border-l border-gray-200 shadow-lg z-10 overflow-y-auto">
+            <div className="p-3 border-b border-gray-100 flex items-center justify-between">
+              <h4 className="text-xs font-semibold text-gray-700">📚 历史摘要</h4>
+              <button onClick={() => setShowSummaryPanel(false)} className="text-gray-400 hover:text-gray-600">
+                <X size={14} />
+              </button>
+            </div>
+            <div className="p-2 space-y-2">
+              {summariesData?.items?.map(s => (
+                <div key={s.id} className="bg-gray-50 rounded-lg p-2 text-xs border border-gray-100">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <input
+                      type="checkbox"
+                      checked={selectedSummaries.includes(s.id)}
+                      onChange={e => {
+                        if (e.target.checked) {
+                          setSelectedSummaries(prev => [...prev, s.id])
+                        } else {
+                          setSelectedSummaries(prev => prev.filter(id => id !== s.id))
+                        }
+                      }}
+                      className="rounded"
+                    />
+                    <span className="font-medium text-gray-800 truncate">{s.file_name}</span>
+                  </div>
+                  <p className="text-gray-500 line-clamp-3">{s.summary}</p>
+                  <div className="text-[10px] text-gray-400 mt-1">
+                    {new Date(s.created_at).toLocaleDateString()} · {s.summary_char_count} 字
+                  </div>
+                </div>
+              ))}
+              {!summariesData?.items?.length && (
+                <div className="text-center text-gray-400 text-xs py-4">暂无历史摘要</div>
+              )}
+            </div>
           </div>
         )}
 

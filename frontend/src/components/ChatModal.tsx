@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Bot, User, Send, X, FileText } from 'lucide-react'
+import { Bot, User, Send, X, FileText, BookOpen } from 'lucide-react'
 import type { Agent, ChatFile } from '../types'
-import { chatApi, fileApi } from '../api/client'
+import { chatApi, fileApi, summaryApi } from '../api/client'
 import ChatFileBar, { type FileMode } from './ChatFileBar'
 
 interface Message {
@@ -29,6 +29,8 @@ export default function ChatModal({ agent, onClose }: Props) {
     return (saved as FileMode) || 'auto'
   })
   const bottomRef = useRef<HTMLDivElement>(null)
+  const [showSummaryPanel, setShowSummaryPanel] = useState(false)
+  const [selectedSummaries, setSelectedSummaries] = useState<number[]>([])
 
   const { data: historyData, isLoading: historyLoading } = useQuery({
     queryKey: ['chat_history', agent.id],
@@ -41,6 +43,12 @@ export default function ChatModal({ agent, onClose }: Props) {
     queryKey: ['chat_files', agent.id],
     queryFn: () => fileApi.listAgent(agent.id),
     enabled: !!agent.id,
+  })
+
+  const { data: summariesData } = useQuery({
+    queryKey: ['summaries', agent.id],
+    queryFn: () => summaryApi.list({ agent_id: agent.id, limit: 20 }),
+    enabled: !!agent.id && showSummaryPanel,
   })
 
   useEffect(() => {
@@ -181,7 +189,7 @@ export default function ChatModal({ agent, onClose }: Props) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={onClose}>
       <div
-        className="bg-white rounded-xl w-full max-w-lg h-[80vh] shadow-xl flex flex-col overflow-hidden"
+        className="relative bg-white rounded-xl w-full max-w-lg h-[80vh] shadow-xl flex flex-col overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -195,9 +203,18 @@ export default function ChatModal({ agent, onClose }: Props) {
               <p className="text-xs text-gray-500">{agent.model || 'kimi-latest'}</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500">
-            <X size={18} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setShowSummaryPanel(v => !v)}
+              className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500"
+              title="摘要库"
+            >
+              <BookOpen size={18} />
+            </button>
+            <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500">
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         {/* Messages */}
@@ -256,6 +273,45 @@ export default function ChatModal({ agent, onClose }: Props) {
           )}
           <div ref={bottomRef} />
         </div>
+
+        {showSummaryPanel && (
+          <div className="absolute right-0 top-[57px] bottom-[140px] w-64 bg-white border-l border-gray-200 shadow-lg z-10 overflow-y-auto">
+            <div className="p-3 border-b border-gray-100 flex items-center justify-between">
+              <h4 className="text-xs font-semibold text-gray-700">📚 历史摘要</h4>
+              <button onClick={() => setShowSummaryPanel(false)} className="text-gray-400 hover:text-gray-600">
+                <X size={14} />
+              </button>
+            </div>
+            <div className="p-2 space-y-2">
+              {summariesData?.items?.map(s => (
+                <div key={s.id} className="bg-gray-50 rounded-lg p-2 text-xs border border-gray-100">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <input
+                      type="checkbox"
+                      checked={selectedSummaries.includes(s.id)}
+                      onChange={e => {
+                        if (e.target.checked) {
+                          setSelectedSummaries(prev => [...prev, s.id])
+                        } else {
+                          setSelectedSummaries(prev => prev.filter(id => id !== s.id))
+                        }
+                      }}
+                      className="rounded"
+                    />
+                    <span className="font-medium text-gray-800 truncate">{s.file_name}</span>
+                  </div>
+                  <p className="text-gray-500 line-clamp-3">{s.summary}</p>
+                  <div className="text-[10px] text-gray-400 mt-1">
+                    {new Date(s.created_at).toLocaleDateString()} · {s.summary_char_count} 字
+                  </div>
+                </div>
+              ))}
+              {!summariesData?.items?.length && (
+                <div className="text-center text-gray-400 text-xs py-4">暂无历史摘要</div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* File bar */}
         <ChatFileBar

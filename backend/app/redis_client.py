@@ -73,3 +73,65 @@ def append_group_chat_message(group_id: int, role: str, agent_id: int, agent_nam
     }
     r.rpush(key, json.dumps(message, ensure_ascii=False))
     r.ltrim(key, -MAX_GROUP_HISTORY, -1)
+
+
+# ── Chat file metadata storage ──
+
+def get_chat_files(agent_id: int) -> List[Dict[str, Any]]:
+    """Get uploaded file metadata for an agent."""
+    key = f"chat_files:{agent_id}"
+    items = r.lrange(key, 0, -1)
+    return [json.loads(item) for item in items]
+
+
+def add_chat_file(agent_id: int, file_meta: Dict[str, Any]):
+    """Add a file metadata entry for an agent."""
+    key = f"chat_files:{agent_id}"
+    r.rpush(key, json.dumps(file_meta, ensure_ascii=False))
+
+
+def remove_chat_file(agent_id: int, file_id: str):
+    """Remove a file metadata entry by file_id."""
+    key = f"chat_files:{agent_id}"
+    items = r.lrange(key, 0, -1)
+    for item in items:
+        data = json.loads(item)
+        if data.get("id") == file_id:
+            r.lrem(key, 0, item)
+            break
+
+
+def clear_chat_files(agent_id: int):
+    """Clear all file metadata for an agent."""
+    r.delete(f"chat_files:{agent_id}")
+
+
+# ── Group chat file metadata storage ──
+
+def get_group_chat_files(group_id: int) -> List[Dict[str, Any]]:
+    """Get uploaded file metadata for a group."""
+    key = f"group_chat_files:{group_id}"
+    items = r.lrange(key, 0, -1)
+    return [json.loads(item) for item in items]
+
+
+def add_group_chat_file(group_id: int, file_meta: Dict[str, Any]):
+    """Add a file metadata entry for a group."""
+    key = f"group_chat_files:{group_id}"
+    r.rpush(key, json.dumps(file_meta, ensure_ascii=False))
+
+
+def remove_group_chat_file(group_id: int, file_id: str):
+    """Remove a file metadata entry by file_id."""
+    key = f"group_chat_files:{group_id}"
+    items = r.lrange(key, 0, -1)
+    for item in items:
+        data = json.loads(item)
+        if data.get("id") == file_id:
+            r.lrem(key, 0, item)
+            break
+
+
+def clear_group_chat_files(group_id: int):
+    """Clear all file metadata for a group."""
+    r.delete(f"group_chat_files:{group_id}")

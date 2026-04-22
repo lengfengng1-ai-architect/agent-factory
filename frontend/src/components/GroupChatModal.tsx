@@ -1,8 +1,9 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Bot, Send, X, Users, Maximize2, Minimize2 } from 'lucide-react'
-import { agentApi, groupChatApi } from '../api/client'
-import type { Group } from '../types'
+import { Bot, Send, X, Users, Maximize2, Minimize2, FileText } from 'lucide-react'
+import { agentApi, groupChatApi, fileApi } from '../api/client'
+import type { Group, ChatFile } from '../types'
+import ChatFileBar, { type FileMode } from './ChatFileBar'
 
 interface GroupMessage {
   role: 'user' | 'assistant'
@@ -13,6 +14,7 @@ interface GroupMessage {
   done?: boolean
   phase?: 'expert' | 'moderator'
   round?: number
+  fileIds?: string[]
 }
 
 interface Props {
@@ -20,11 +22,19 @@ interface Props {
   onClose: () => void
 }
 
+const STORAGE_KEY = (groupId: number) => `chat_file_mode_group_${groupId}`
+
 export default function GroupChatModal({ group, onClose }: Props) {
   const [messages, setMessages] = useState<GroupMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [isMaximized, setIsMaximized] = useState(false)
+  const [files, setFiles] = useState<ChatFile[]>([])
+  const [uploading, setUploading] = useState(false)
+  const [fileMode, setFileMode] = useState<FileMode>(() => {
+    const saved = localStorage.getItem(STORAGE_KEY(group.id))
+    return (saved as FileMode) || 'auto'
+  })
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const { data: agents } = useQuery({ queryKey: ['agents'], queryFn: agentApi.list })
@@ -35,6 +45,18 @@ export default function GroupChatModal({ group, onClose }: Props) {
     queryFn: () => groupChatApi.history(group.id),
     enabled: !!group.id,
   })
+
+  const { data: filesData } = useQuery({
+    queryKey: ['group_chat_files', group.id],
+    queryFn: () => fileApi.listGroup(group.id),
+    enabled: !!group.id,
+  })
+
+  useEffect(() => {
+    if (filesData?.files) {
+      setFiles(filesData.files)
+    }
+  }, [filesData])
 
   useEffect(() => {
     if (historyData?.messages) {
@@ -52,6 +74,34 @@ export default function GroupChatModal({ group, onClose }: Props) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  const handleModeChange = useCallback((mode: FileMode) => {
+    setFileMode(mode)
+    localStorage.setItem(STORAGE_KEY(group.id), mode)
+  }, [group.id])
+
+  const handleUpload = useCallback(async (fileList: FileList) => {
+    setUploading(true)
+    try {
+      const res = await fileApi.uploadGroup(group.id, fileList)
+      if (res.files) {
+        setFiles(prev => [...prev, ...res.files])
+      }
+    } catch (err: any) {
+      alert(`上传失败: ${err.message || 'Unknown error'}`)
+    } finally {
+      setUploading(false)
+    }
+  }, [group.id])
+
+  const handleRemoveFile = useCallback(async (fileId: string) => {
+    try {
+      await fileApi.deleteGroup(group.id, fileId)
+      setFiles(prev => prev.filter(f => f.id !== fileId))
+    } catch (err: any) {
+      alert(`删除失败: ${err.message || 'Unknown error'}`)
+    }
+  }, [group.id])
+
   const updateAgentMessage = (agentId: number, content: string) => {
     setMessages(prev => {
       const idx = prev.findIndex(m => m.agent_id === agentId && m.role === 'assistant' && !m.done)
@@ -65,6 +115,8 @@ export default function GroupChatModal({ group, onClose }: Props) {
   }
 
   const handleParallelChat = async (text: string) => {
+    const activeFileIds = files.map(f => f.id)
+
     // Add placeholder messages for each agent
     const agentPlaceholders = groupAgents.map(a => ({
       role: 'assistant' as const,
@@ -80,7 +132,12 @@ export default function GroupChatModal({ group, onClose }: Props) {
         const res = await fetch(`/api/agents/${agent.id}/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text, group_id: group.id }),
+          body: JSON.stringify({
+            message: text,
+            group_id: group.id,
+            files: activeFileIds,
+            file_mode: fileMode,
+          }),
         })
 
         if (!res.ok || !res.body) {
@@ -126,6 +183,8 @@ export default function GroupChatModal({ group, onClose }: Props) {
   }
 
   const handleGroupStream = async (text: string) => {
+    const activeFileIds = files.map(f => f.id)
+
     // Add a single placeholder for the stream
     setMessages(prev => [...prev, { role: 'assistant', agent_id: -1, agent_name: 'Loading...', content: '' }])
 
@@ -133,7 +192,11 @@ export default function GroupChatModal({ group, onClose }: Props) {
       const res = await fetch(`/api/groups/${group.id}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({
+          message: text,
+          files: activeFileIds,
+          file_mode: fileMode,
+        }),
       })
 
       if (!res.ok || !res.body) {
@@ -214,8 +277,10 @@ export default function GroupChatModal({ group, onClose }: Props) {
     const text = input.trim()
     if (!text || loading) return
 
+    const activeFileIds = files.map(f => f.id)
+
     setInput('')
-    setMessages(prev => [...prev, { role: 'user', agent_id: 0, agent_name: 'User', content: text }])
+    setMessages(prev => [...prev, { role: 'user', agent_id: 0, agent_name: 'User', content: text, fileIds: activeFileIds }])
     setLoading(true)
 
     const chatType = group.chat_type || 'parallel'
@@ -326,8 +391,16 @@ export default function GroupChatModal({ group, onClose }: Props) {
               <div key={idx}>
                 {msg.role === 'user' ? (
                   <div className="flex justify-end">
-                    <div className="max-w-[80%] px-4 py-2 rounded-2xl bg-gray-900 text-white text-sm rounded-br-md">
-                      {msg.content}
+                    <div className="max-w-[80%]">
+                      <div className="max-w-[80%] px-4 py-2 rounded-2xl bg-gray-900 text-white text-sm rounded-br-md">
+                        {msg.content}
+                      </div>
+                      {msg.fileIds && msg.fileIds.length > 0 && (
+                        <div className="flex items-center gap-1 mt-1 justify-end">
+                          <FileText size={10} className="text-gray-400" />
+                          <span className="text-[10px] text-gray-400">{msg.fileIds.length} 个附件</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -354,6 +427,17 @@ export default function GroupChatModal({ group, onClose }: Props) {
             <div ref={bottomRef} />
           </div>
         )}
+
+        {/* File bar */}
+        <ChatFileBar
+          files={files}
+          fileMode={fileMode}
+          onUpload={handleUpload}
+          onRemove={handleRemoveFile}
+          onModeChange={handleModeChange}
+          disabled={loading}
+          uploading={uploading}
+        />
 
         {/* Input */}
         <div className="px-5 py-4 border-t border-gray-200">

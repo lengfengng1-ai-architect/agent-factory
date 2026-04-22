@@ -7,11 +7,16 @@ from app import models
 from app.redis_client import (
     get_chat_history, append_chat_message, append_group_chat_message,
     set_chat_partial, get_chat_partial, delete_chat_partial,
+    get_chat_files,
 )
+from app.file_utils import extract_text
+from app.context_manager import build_messages_with_budget, get_model_context_window
+from app.summarizer import generate_summary, maybe_use_summary
 from app.tools import get_agent_tools
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
 import json
+import os
 
 router = APIRouter()
 
@@ -76,15 +81,55 @@ async def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(ge
         finally:
             db_local.close()
 
-    # Build messages with history
+    # Build messages with history and file attachments
     history = get_chat_history(agent_id)
-    messages = [SystemMessage(content=system_prompt)]
-    for msg in history[:-1]:  # Exclude the just-added user message
-        if msg["role"] == "user":
-            messages.append(HumanMessage(content=msg["content"]))
-        elif msg["role"] == "assistant":
-            messages.append(AIMessage(content=msg["content"]))
-    messages.append(HumanMessage(content=user_message))
+
+    # Load file contents
+    file_ids = payload.get("files", []) or []
+    file_mode = payload.get("file_mode", "auto")  # "auto" | "truncate" | "summary"
+    file_contents = []
+
+    if file_ids:
+        uploaded_files = get_chat_files(agent_id)
+        file_id_to_meta = {f.get("id"): f for f in uploaded_files}
+
+        for fid in file_ids:
+            meta = file_id_to_meta.get(fid)
+            if not meta:
+                continue
+            path = meta.get("path", "")
+            name = meta.get("name", "unknown")
+            if not path or not os.path.exists(path):
+                continue
+
+            result = maybe_use_summary(path, name, file_mode)
+            content = result.get("content", "")
+            is_summary = result.get("is_summary", False)
+
+            # If summary is needed but not cached, generate it now
+            if result.get("needs_summary"):
+                try:
+                    summary = await asyncio.wait_for(
+                        generate_summary(path, name, agent, provider),
+                        timeout=15,
+                    )
+                    if not summary.startswith("[Error"):
+                        content = summary
+                        is_summary = True
+                except asyncio.TimeoutError:
+                    pass  # fallback to full/truncated content
+
+            file_contents.append({"name": name, "content": content, "is_summary": is_summary})
+
+    # Get context window and build budget-constrained messages
+    context_window = get_model_context_window(db, agent)
+    messages = build_messages_with_budget(
+        agent=agent,
+        history=history,
+        user_message=user_message,
+        file_contents=file_contents,
+        context_window=context_window,
+    )
 
     llm = ChatOpenAI(
         model=model,

@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from app.database import engine, Base, get_db
-from app.routers import agents, groups, tasks, chat, models, providers, group_chat
+from app.routers import agents, groups, tasks, chat, models, providers, group_chat, files
 from app.task_engine import start_scheduler
 
 Base.metadata.create_all(bind=engine)
@@ -44,6 +44,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Register files router BEFORE agents/groups to avoid path shadowing
+# Files uses /api/agents/{id}/files and /api/groups/{id}/files
+app.include_router(files.router, prefix="/api", tags=["files"])
 app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
 app.include_router(groups.router, prefix="/api/groups", tags=["groups"])
 app.include_router(tasks.router, prefix="/api/tasks", tags=["tasks"])

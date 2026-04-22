@@ -60,3 +60,11 @@ export interface ProviderModel {
   context_window: number | null;
   created_at: string;
 }
+
+export interface ChatFile {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  timestamp: string;
+}

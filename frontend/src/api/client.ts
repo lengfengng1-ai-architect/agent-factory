@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Agent, Group, Task, TaskStatus, Provider, ProviderModel } from '../types';
+import type { Agent, Group, Task, TaskStatus, Provider, ProviderModel, ChatFile } from '../types';
 
 const api = axios.create({
   baseURL: '/api',
@@ -58,4 +58,33 @@ export const chatApi = {
 export const groupChatApi = {
   history: (groupId: number) =>
     api.get<{ messages: { role: string; agent_id: number; agent_name: string; content: string; timestamp: string }[] }>(`/groups/${groupId}/chat/history`).then(r => r.data),
+};
+
+export const fileApi = {
+  uploadAgent: (agentId: number, files: FileList) => {
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+      formData.append('files', files[i]);
+    }
+    return api.post<{ files: ChatFile[] }>(`/agents/${agentId}/files/upload`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data);
+  },
+  uploadGroup: (groupId: number, files: FileList) => {
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+      formData.append('files', files[i]);
+    }
+    return api.post<{ files: ChatFile[] }>(`/groups/${groupId}/files/upload`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data);
+  },
+  listAgent: (agentId: number) =>
+    api.get<{ files: ChatFile[] }>(`/agents/${agentId}/files`).then(r => r.data),
+  listGroup: (groupId: number) =>
+    api.get<{ files: ChatFile[] }>(`/groups/${groupId}/files`).then(r => r.data),
+  deleteAgent: (agentId: number, fileId: string) =>
+    api.delete(`/agents/${agentId}/files/${fileId}`).then(r => r.data),
+  deleteGroup: (groupId: number, fileId: string) =>
+    api.delete(`/groups/${groupId}/files/${fileId}`).then(r => r.data),
 };

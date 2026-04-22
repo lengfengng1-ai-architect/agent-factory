@@ -11,6 +11,11 @@ BUILTIN_FALLBACKS = {
         {"id": "kimi-k2", "name": "Kimi K2"},
         {"id": "kimi-k1.5", "name": "Kimi K1.5"},
     ],
+    "kimi-code": [
+        {"id": "kimi-latest", "name": "Kimi Latest"},
+        {"id": "kimi-k2", "name": "Kimi K2"},
+        {"id": "kimi-k1.5", "name": "Kimi K1.5"},
+    ],
     "openai": [
         {"id": "gpt-4o", "name": "GPT-4o"},
         {"id": "gpt-4o-mini", "name": "GPT-4o Mini"},

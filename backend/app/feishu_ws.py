@@ -10,8 +10,9 @@ from lark_oapi.api.im.v1.model.p2_im_message_receive_v1 import P2ImMessageReceiv
 from app import models
 from app.database import SessionLocal
 from app.feishu_client import send_text_message
+from app.redis_client import append_chat_message, get_chat_history
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 # Map: agent_id -> ws_client thread
 _ws_threads: dict[int, threading.Thread] = {}
@@ -47,13 +48,25 @@ async def _reply_to_feishu(agent_id: int, receive_id: str, text: str):
             max_tokens=2000,
         )
 
-        messages = [
-            SystemMessage(content=agent.system_prompt or "You are a helpful assistant."),
-            HumanMessage(content=f"【飞书消息】{text}"),
-        ]
+        # Save user message to Redis
+        append_chat_message(agent_id, "user", f"【飞书】{text}")
+
+        # Load chat history for context
+        history = get_chat_history(agent_id)
+
+        messages = [SystemMessage(content=agent.system_prompt or "You are a helpful assistant.")]
+        for msg in history[:-1]:  # Exclude the last user message we just added
+            if msg["role"] == "user":
+                messages.append(HumanMessage(content=msg["content"]))
+            elif msg["role"] == "assistant":
+                messages.append(AIMessage(content=msg["content"]))
+        messages.append(HumanMessage(content=f"【飞书消息】{text}"))
 
         response = await llm.ainvoke(messages)
         reply = response.content.strip()
+
+        # Save assistant reply to Redis
+        append_chat_message(agent_id, "assistant", f"【飞书】{reply}")
 
         feishu_cfg = (agent.config or {}).get("feishu", {})
         app_id = feishu_cfg.get("app_id", "")

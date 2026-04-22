@@ -2,10 +2,13 @@
 
 import hashlib
 import asyncio
+import os
+from pathlib import Path
 from typing import Optional
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from app import models
+from app.database import SessionLocal
 from app.file_utils import (
     extract_text,
     compute_content_hash,
@@ -35,6 +38,98 @@ def save_summary_cache(file_hash: str, summary: str):
     """Save summary to Redis with TTL."""
     key = _get_summary_cache_key(file_hash)
     r.set(key, summary, ex=SUMMARY_CACHE_TTL)
+
+
+def get_summary_from_db(content_hash: str) -> models.FileSummary | None:
+    """Get cached summary from SQLite by content hash."""
+    db = SessionLocal()
+    try:
+        return db.query(models.FileSummary).filter(models.FileSummary.content_hash == content_hash).first()
+    finally:
+        db.close()
+
+
+def save_summary_to_db(
+    content_hash: str,
+    file_name: str,
+    file_ext: str,
+    file_size: int,
+    char_count: int,
+    summary: str,
+    agent_id: int,
+    model_id: str,
+    group_id: int | None = None,
+):
+    """Save summary to SQLite. Update if content_hash exists, else insert."""
+    db = SessionLocal()
+    try:
+        existing = db.query(models.FileSummary).filter(models.FileSummary.content_hash == content_hash).first()
+        if existing:
+            existing.summary = summary
+            existing.summary_char_count = len(summary)
+        else:
+            new_summary = models.FileSummary(
+                content_hash=content_hash,
+                file_name=file_name,
+                file_ext=file_ext,
+                file_size=file_size,
+                char_count=char_count,
+                summary=summary,
+                summary_char_count=len(summary),
+                agent_id=agent_id,
+                group_id=group_id,
+                model_id=model_id,
+            )
+            db.add(new_summary)
+        db.commit()
+    finally:
+        db.close()
+
+
+def get_summaries_for_agent(agent_id: int) -> list[dict]:
+    """Query all historical summaries for a given agent."""
+    db = SessionLocal()
+    try:
+        summaries = (
+            db.query(models.FileSummary)
+            .filter(models.FileSummary.agent_id == agent_id)
+            .order_by(models.FileSummary.created_at.desc())
+            .all()
+        )
+        return [
+            {
+                "id": s.id,
+                "file_name": s.file_name,
+                "summary": s.summary[:200] if s.summary else "",
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+            }
+            for s in summaries
+        ]
+    finally:
+        db.close()
+
+
+def get_summaries_for_group(group_id: int) -> list[dict]:
+    """Query all historical summaries for a given group."""
+    db = SessionLocal()
+    try:
+        summaries = (
+            db.query(models.FileSummary)
+            .filter(models.FileSummary.group_id == group_id)
+            .order_by(models.FileSummary.created_at.desc())
+            .all()
+        )
+        return [
+            {
+                "id": s.id,
+                "file_name": s.file_name,
+                "summary": s.summary[:200] if s.summary else "",
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+            }
+            for s in summaries
+        ]
+    finally:
+        db.close()
 
 
 def _create_llm(agent: models.Agent, provider: models.Provider) -> ChatOpenAI:
@@ -103,6 +198,20 @@ async def generate_summary(
 
         # Cache the result
         save_summary_cache(content_hash, summary)
+
+        # Persist successful summaries to SQLite
+        if not summary.startswith("[Error"):
+            save_summary_to_db(
+                content_hash=content_hash,
+                file_name=filename,
+                file_ext=Path(filename).suffix.lstrip("."),
+                file_size=os.path.getsize(file_path),
+                char_count=len(content),
+                summary=summary,
+                agent_id=agent.id,
+                model_id=agent.model,
+            )
+
         return summary
 
     except asyncio.TimeoutError:
@@ -151,6 +260,18 @@ def maybe_use_summary(
     cached = get_cached_summary(content_hash)
     if cached:
         return {"content": cached, "is_summary": True, "error": None}
+
+    # Check SQLite DB if Redis miss
+    db_summary = get_summary_from_db(content_hash)
+    if db_summary:
+        # Backfill Redis cache
+        save_summary_cache(content_hash, db_summary.summary)
+        return {
+            "content": db_summary.summary,
+            "is_summary": True,
+            "error": None,
+            "db_id": db_summary.id,
+        }
 
     # Summary needed but not cached - return full content for now
     # The caller should trigger async summary generation

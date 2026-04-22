@@ -185,7 +185,7 @@ def delete_agent_file(agent_id: int, file_id: str, db: Session = Depends(get_db)
 def list_task_artifacts(task_id: int):
     """List artifact files for a workflow task."""
     import os
-    task_dir = os.path.join(os.path.dirname(__file__), "..", "workspace", "tasks", str(task_id))
+    task_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspace", "tasks", str(task_id)))
     if not os.path.exists(task_dir):
         return {"artifacts": []}
     
@@ -195,7 +195,7 @@ def list_task_artifacts(task_id: int):
         if os.path.isfile(fpath):
             artifacts.append({
                 "name": fname,
-                "path": fpath,
+                "path": os.path.abspath(fpath),
                 "size": os.path.getsize(fpath),
             })
     return {"artifacts": artifacts}

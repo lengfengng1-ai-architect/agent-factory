@@ -21,7 +21,7 @@ export default function ArtifactViewer({ artifacts, onClose }: Props) {
     setSelected(art)
     setLoading(true)
     try {
-      const res = await fetch(`/api/files/artifacts/read?path=${encodeURIComponent(art.path)}`)
+      const res = await fetch(`/api/artifacts/read?path=${encodeURIComponent(art.path)}`)
       const data = await res.json()
       setContent(data.content || '')
     } catch {

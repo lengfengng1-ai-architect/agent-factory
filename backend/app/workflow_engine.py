@@ -232,13 +232,16 @@ async def execute_workflow(task_id: int):
         if not task or not task.workflow_plan:
             return
         
-        cfg = task.workflow_config or {}
-        disable_checkpoints = cfg.get("disable_checkpoints", False)
-        
         task.workflow_status = "running"
         db.commit()
         
         while True:
+            # Re-read task config each iteration so runtime changes take effect
+            db.refresh(task)
+            cfg = task.workflow_config or {}
+            disable_checkpoints = cfg.get("disable_checkpoints", False)
+            max_retries = cfg.get("retry_count", DEFAULT_RETRY_COUNT)
+            
             executable = _get_next_executable_steps(task_id, db)
             if not executable:
                 # No more pending steps — check if all done
@@ -262,7 +265,6 @@ async def execute_workflow(task_id: int):
             db.refresh(step)
             
             if step.status == "failed":
-                max_retries = cfg.get("retry_count", DEFAULT_RETRY_COUNT)
                 if step.retry_count < max_retries:
                     step.retry_count += 1
                     step.status = "pending"

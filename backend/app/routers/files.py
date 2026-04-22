@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 router = APIRouter()
 
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
 MAX_FILES_PER_UPLOAD = 5
 
 

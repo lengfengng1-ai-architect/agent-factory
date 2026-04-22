@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Bot, User, Send, X, FileText, BookOpen } from 'lucide-react'
+import { Bot, User, Send, X, FileText, BookOpen, MessageCircle } from 'lucide-react'
 import type { Agent, ChatFile } from '../types'
-import { chatApi, fileApi, summaryApi } from '../api/client'
+import { chatApi, fileApi, summaryApi, feishuApi } from '../api/client'
 import ChatFileBar, { type FileMode } from './ChatFileBar'
 
 interface Message {
@@ -31,11 +31,18 @@ export default function ChatModal({ agent, onClose }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const [showSummaryPanel, setShowSummaryPanel] = useState(false)
   const [selectedSummaries, setSelectedSummaries] = useState<number[]>([])
+  const [activeTab, setActiveTab] = useState<'chat' | 'feishu'>('chat')
 
   const { data: historyData, isLoading: historyLoading } = useQuery({
     queryKey: ['chat_history', agent.id],
     queryFn: () => chatApi.history(agent.id),
-    enabled: !!agent.id,
+    enabled: !!agent.id && activeTab === 'chat',
+  })
+
+  const { data: feishuHistoryData, isLoading: feishuHistoryLoading } = useQuery({
+    queryKey: ['feishu_history', agent.id],
+    queryFn: () => feishuApi.history(agent.id),
+    enabled: !!agent.id && activeTab === 'feishu',
   })
 
   // Load existing files
@@ -217,17 +224,50 @@ export default function ChatModal({ agent, onClose }: Props) {
           </div>
         </div>
 
+        {/* Tabs */}
+        <div className="flex border-b border-gray-200">
+          <button
+            onClick={() => setActiveTab('chat')}
+            className={`flex-1 py-2 text-xs font-medium transition-colors ${
+              activeTab === 'chat'
+                ? 'text-gray-900 border-b-2 border-gray-900 bg-gray-50'
+                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            💬 Web 聊天
+          </button>
+          <button
+            onClick={() => setActiveTab('feishu')}
+            className={`flex-1 py-2 text-xs font-medium transition-colors ${
+              activeTab === 'feishu'
+                ? 'text-indigo-700 border-b-2 border-indigo-600 bg-indigo-50'
+                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            🤖 飞书历史
+          </button>
+        </div>
+
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          {historyLoading && (
+          {activeTab === 'chat' && historyLoading && (
             <div className="flex justify-center mt-10">
               <span className="inline-block w-5 h-5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
             </div>
           )}
-          {!historyLoading && messages.length === 0 && (
+          {activeTab === 'feishu' && feishuHistoryLoading && (
+            <div className="flex justify-center mt-10">
+              <span className="inline-block w-5 h-5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+            </div>
+          )}
+          {activeTab === 'chat' && !historyLoading && messages.length === 0 && (
             <div className="text-center text-gray-400 text-sm mt-10">Start a conversation with {agent.name}</div>
           )}
-          {messages.map((msg, idx) => (
+          {activeTab === 'feishu' && !feishuHistoryLoading && (!feishuHistoryData?.messages || feishuHistoryData.messages.length === 0) && (
+            <div className="text-center text-gray-400 text-sm mt-10">暂无飞书聊天记录</div>
+          )}
+
+          {activeTab === 'chat' && messages.map((msg, idx) => (
             <div key={idx} className={`flex gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               {msg.role === 'assistant' && (
                 <div className="w-7 h-7 rounded-full bg-gray-900 text-white flex items-center justify-center flex-shrink-0 mt-1">
@@ -246,7 +286,6 @@ export default function ChatModal({ agent, onClose }: Props) {
                     <span className="inline-block w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
                   ) : null)}
                 </div>
-                {/* File attachments indicator for user messages */}
                 {msg.role === 'user' && msg.fileIds && msg.fileIds.length > 0 && (
                   <div className="flex items-center gap-1 mt-1 justify-end">
                     <FileText size={10} className="text-gray-400" />
@@ -263,8 +302,40 @@ export default function ChatModal({ agent, onClose }: Props) {
               )}
             </div>
           ))}
+
+          {activeTab === 'feishu' && feishuHistoryData?.messages?.map((msg: any, idx: number) => (
+            <div key={idx} className={`flex gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              {msg.role === 'assistant' && (
+                <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center flex-shrink-0 mt-1">
+                  <MessageCircle size={14} />
+                </div>
+              )}
+              <div className="max-w-[80%]">
+                <div
+                  className={`px-4 py-2 rounded-2xl text-sm leading-relaxed ${
+                    msg.role === 'user'
+                      ? 'bg-indigo-100 text-indigo-900 rounded-br-md'
+                      : 'bg-gray-100 text-gray-900 rounded-bl-md'
+                  }`}
+                >
+                  {msg.content}
+                </div>
+                {msg.timestamp && (
+                  <div className="text-[10px] text-gray-400 mt-0.5 text-right">
+                    {new Date(msg.timestamp).toLocaleString()}
+                  </div>
+                )}
+              </div>
+              {msg.role === 'user' && (
+                <div className="w-7 h-7 rounded-full bg-indigo-200 text-indigo-700 flex items-center justify-center flex-shrink-0 mt-1">
+                  <User size={14} />
+                </div>
+              )}
+            </div>
+          ))}
+
           {/* Pending hint */}
-          {!loading && messages.length > 0 && messages[messages.length - 1].role === 'user' && (
+          {activeTab === 'chat' && !loading && messages.length > 0 && messages[messages.length - 1].role === 'user' && (
             <div className="flex justify-start">
               <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-3 py-2 rounded-lg text-xs">
                 Agent 正在回答中，关闭弹窗也不会中断。请稍后再打开查看完整结果。
@@ -313,38 +384,42 @@ export default function ChatModal({ agent, onClose }: Props) {
           </div>
         )}
 
-        {/* File bar */}
-        <ChatFileBar
-          files={files}
-          fileMode={fileMode}
-          onUpload={handleUpload}
-          onRemove={handleRemoveFile}
-          onModeChange={handleModeChange}
-          disabled={loading}
-          uploading={uploading}
-        />
-
-        {/* Input */}
-        <div className="px-5 py-4 border-t border-gray-200">
-          <div className="flex gap-2">
-            <input
-              type="text"
-              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
-              placeholder="Type a message..."
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
+        {activeTab === 'chat' && (
+          <>
+            {/* File bar */}
+            <ChatFileBar
+              files={files}
+              fileMode={fileMode}
+              onUpload={handleUpload}
+              onRemove={handleRemoveFile}
+              onModeChange={handleModeChange}
               disabled={loading}
+              uploading={uploading}
             />
-            <button
-              onClick={handleSend}
-              disabled={loading || !input.trim()}
-              className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-            >
-              <Send size={14} />
-            </button>
-          </div>
-        </div>
+
+            {/* Input */}
+            <div className="px-5 py-4 border-t border-gray-200">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+                  placeholder="Type a message..."
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  disabled={loading}
+                />
+                <button
+                  onClick={handleSend}
+                  disabled={loading || !input.trim()}
+                  className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                >
+                  <Send size={14} />
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )

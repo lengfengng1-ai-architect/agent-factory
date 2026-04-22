@@ -55,6 +55,17 @@ export const chatApi = {
     api.get<{ messages: { role: string; content: string; timestamp: string }[] }>(`/agents/${agentId}/chat/history`).then(r => r.data),
 };
 
+export const feishuApi = {
+  status: (agentId: number) =>
+    api.get<{ connected: boolean; agent_id: number }>(`/feishu/status/${agentId}`).then(r => r.data),
+  connect: (agentId: number) =>
+    api.post<{ success: boolean; agent_id: number }>(`/feishu/connect/${agentId}`).then(r => r.data),
+  disconnect: (agentId: number) =>
+    api.post<{ success: boolean; agent_id: number }>(`/feishu/disconnect/${agentId}`).then(r => r.data),
+  history: (agentId: number) =>
+    api.get<{ messages: { role: string; content: string; timestamp: string }[] }>(`/feishu/history/${agentId}`).then(r => r.data),
+};
+
 export const groupChatApi = {
   history: (groupId: number) =>
     api.get<{ messages: { role: string; agent_id: number; agent_name: string; content: string; timestamp: string }[] }>(`/groups/${groupId}/chat/history`).then(r => r.data),

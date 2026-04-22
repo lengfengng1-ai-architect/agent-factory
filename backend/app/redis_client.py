@@ -33,6 +33,33 @@ def clear_chat_history(agent_id: int):
     r.delete(key)
 
 
+# ── Feishu chat history (isolated from web chat) ──
+
+def get_feishu_chat_history(agent_id: int) -> List[Dict[str, Any]]:
+    """Get Feishu chat history for an agent from Redis."""
+    key = f"feishu_chat_history:{agent_id}"
+    items = r.lrange(key, 0, -1)
+    return [json.loads(item) for item in items]
+
+
+def append_feishu_chat_message(agent_id: int, role: str, content: str):
+    """Append a message to agent's Feishu chat history in Redis."""
+    key = f"feishu_chat_history:{agent_id}"
+    message = {
+        "role": role,
+        "content": content,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    r.rpush(key, json.dumps(message, ensure_ascii=False))
+    r.ltrim(key, -MAX_HISTORY, -1)
+
+
+def clear_feishu_chat_history(agent_id: int):
+    """Clear Feishu chat history for an agent."""
+    key = f"feishu_chat_history:{agent_id}"
+    r.delete(key)
+
+
 def set_chat_partial(agent_id: int, content: str, ttl: int = 300):
     """Store partial generation content for an agent."""
     key = f"chat_partial:{agent_id}"

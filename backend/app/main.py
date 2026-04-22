@@ -106,6 +106,7 @@ def on_startup():
             ("tasks", "workflow_plan", "JSON", "NULL"),
             ("tasks", "workflow_status", "VARCHAR", "''"),
             ("tasks", "workflow_config", "JSON", "NULL"),
+            ("workflow_steps", "output_type", "VARCHAR", "''"),
         ]:
             columns = [c["name"] for c in inspector.get_columns(table_name)]
             if column_name not in columns:

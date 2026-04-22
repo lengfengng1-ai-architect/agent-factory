@@ -64,6 +64,7 @@ class WorkflowStep(Base):
     depends_on = Column(JSON, default=list)
     agent_id = Column(Integer, nullable=True)
     checkpoint = Column(Boolean, default=False)
+    output_type = Column(String, default="")
     result = Column(Text, default="")
     artifact_path = Column(String, default="")
     started_at = Column(DateTime(timezone=True))

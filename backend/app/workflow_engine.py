@@ -42,21 +42,30 @@ async def breakdown_task(task: models.Task, db: Session, require_first_checkpoin
 【任务标题】{task.title}
 【任务描述】{task.description or ""}
 
-请输出 JSON 数组，每个元素包含：
-- name: 步骤名称（简短，20字以内）
-- description: 步骤的具体执行指令（详细 prompt）
-- order_index: 执行顺序（从 0 开始）
-- checkpoint: 是否需要用户确认后再继续（true/false）
-- depends_on: 依赖的前置步骤 order_index 列表（空数组表示无依赖）
+请分析任务类型，推断最终产物的格式（如：文章、代码、报告、设计稿、数据分析结果等），然后输出 JSON 对象，包含两个字段：
+
+1. product_description: 用一句话描述最终产物的格式和类型（如"一篇连贯的科技评论文章"、"一个可运行的 Python 脚本"、"一份包含图表的数据分析报告"）
+
+2. steps: 步骤数组，每个元素包含：
+   - name: 步骤名称（简短，20字以内）
+   - description: 步骤的具体执行指令（详细 prompt）
+   - order_index: 执行顺序（从 0 开始）
+   - checkpoint: 是否需要用户确认后再继续（true/false）
+   - depends_on: 依赖的前置步骤 order_index 列表（空数组表示无依赖）
+   - output_type: 步骤产物类型，必须是以下之一：
+     * "draft" — 该步骤的产物是直接构成最终产物的内容（如文章段落、代码片段、报告正文）
+     * "analysis" — 该步骤的产物是内部分析/规划，不直接出现在最终产物中（如主题分析、资料搜集、大纲构思）
+     * "review" — 该步骤的产物是审校/检查意见，不直接出现在最终产物中（如格式检查、润色建议、错误修正）
 
 注意：
 1. 步骤数控制在 3-20 个
 2. 依赖关系必须形成有向无环图（DAG）
 3. 关键里程碑节点应设置为 checkpoint=true
-4. 如果任务涉及信息收集，设置独立的搜索/调研步骤
-5. 如果任务涉及内容创作，设置大纲→草稿→润色的递进步骤
+4. 如果任务涉及信息收集，设置独立的搜索/调研步骤（output_type=analysis）
+5. 如果任务涉及内容创作，设置大纲→草稿→润色的递进步骤，其中草稿步骤 output_type=draft，审校步骤 output_type=review
+6. 最终产物由所有 output_type=draft 的步骤产物按顺序聚合而成
 
-只输出 JSON 数组，不要其他解释。"""
+只输出 JSON，不要其他解释。"""
 
     messages = [
         SystemMessage(content="You are a task planning expert. Output only valid JSON."),
@@ -75,9 +84,14 @@ async def breakdown_task(task: models.Task, db: Session, require_first_checkpoin
             lines = lines[:-1]
         content = "\n".join(lines).strip()
     
-    steps_data = json.loads(content)
+    data = json.loads(content)
+    if not isinstance(data, dict):
+        raise ValueError("LLM did not return a dict with product_description and steps")
+    
+    product_description = data.get("product_description", "最终产物")
+    steps_data = data.get("steps", [])
     if not isinstance(steps_data, list):
-        raise ValueError("LLM did not return a list")
+        raise ValueError("LLM did not return a steps list")
     
     if len(steps_data) > MAX_WORKFLOW_STEPS:
         steps_data = steps_data[:MAX_WORKFLOW_STEPS]
@@ -93,6 +107,7 @@ async def breakdown_task(task: models.Task, db: Session, require_first_checkpoin
             description=sd.get("description", ""),
             order_index=sd.get("order_index", i),
             checkpoint=bool(sd.get("checkpoint", False)),
+            output_type=sd.get("output_type", ""),
             depends_on=[],  # Will update after all steps created
             agent_id=task.assignee_id if task.assignee_type == "agent" else None,
             status="pending",
@@ -125,6 +140,7 @@ async def breakdown_task(task: models.Task, db: Session, require_first_checkpoin
         "timeout_minutes": DEFAULT_TIMEOUT_MINUTES,
         "retry_count": DEFAULT_RETRY_COUNT,
         "require_first_checkpoint": require_first_checkpoint,
+        "product_description": product_description,
     }
     db.commit()
     
@@ -200,15 +216,38 @@ async def execute_step(step: models.WorkflowStep, task: models.Task, db: Session
     if dep_results:
         context = "\n\n".join(dep_results) + "\n\n"
     
-    is_writing_step = any(k in step.name for k in ("撰写", "写作", "完成", "起草", "定稿"))
+    cfg = task.workflow_config or {}
+    product_description = cfg.get("product_description", "最终产物")
     
-    output_instruction = """你的输出必须直接是文章的正文内容。
+    if step.output_type == "draft":
+        output_instruction = f"""你的输出必须直接是最终产物的一部分。
+【最终产物描述】{product_description}
+
 要求：
-1. 使用流畅、专业的散文体，就像一篇正式发表的科技评论文章
-2. 不要添加步骤标题（如"【当前步骤执行结果】"）、元数据标记或分析框架说明
-3. 不要重复前置步骤已经写过的内容，只写本步骤负责的新内容
-4. 保持与前置步骤一致的写作风格和术语使用""" if is_writing_step else """请认真执行上述指令，输出简洁、有针对性的结果。
-如果是分析/规划类任务，输出核心要点即可，不要写成大段文章。"""
+1. 输出格式必须与最终产物一致（如：文章正文、代码片段、报告内容等）
+2. 不要添加步骤标题、元数据标记（如"【当前步骤执行结果】"）或分析框架说明
+3. 不要重复前置步骤已经产出的内容，只写本步骤负责的新内容
+4. 保持与前置步骤一致的格式和风格"""
+    elif step.output_type == "analysis":
+        output_instruction = """你的输出是内部分析/规划结果，用于指导后续步骤。
+要求：
+1. 输出简洁、有针对性的分析结论或规划要点
+2. 可以使用结构化格式（如列表、表格）
+3. 不需要写成最终产物的格式"""
+    elif step.output_type == "review":
+        output_instruction = """你的输出是审校/检查意见。
+要求：
+1. 指出当前产物中的问题和改进建议
+2. 如果发现问题，请说明具体的修改方向
+3. 不需要重写全部内容，只给出关键意见"""
+    else:
+        output_instruction = f"""你的输出应该直接是最终产物的一部分。
+【最终产物描述】{product_description}
+
+要求：
+1. 输出格式必须与最终产物一致
+2. 不要添加步骤标题或元数据标记
+3. 不要重复前置步骤已经产出的内容"""
     
     prompt = f"""{context}【当前步骤】{step.name}
 【执行指令】{step.description}
@@ -358,33 +397,20 @@ def _clean_step_content(content: str) -> str:
 
 
 def _aggregate_workflow_result(task: models.Task, steps: list, db: Session):
-    """Merge writing-step artifacts into a coherent final article."""
+    """Merge draft-step artifacts into the final product."""
     import os
-    import re
     
-    # Identify writing steps: steps that actually produce article body text
-    writing_keywords = ("撰写", "写作", "起草")
-    non_writing_keywords = (
-        "搜集", "研究", "分析", "整理", "构思", "大纲", "头脑", "主题", "范围",
-        "通读", "润色", "检查", "审阅", "深化", "论证", "强化", "要点",
-        "格式", "字数", "结构", "定稿"
-    )
-    
-    writing_steps = []
+    # Only aggregate steps with output_type="draft" (or empty fallback)
+    draft_steps = []
     for step in sorted(steps, key=lambda s: s.order_index):
         if step.status != "completed":
             continue
-        name = step.name
-        # Include if it has writing keyword and no non-writing keyword
-        if any(k in name for k in writing_keywords):
-            writing_steps.append(step)
-        elif not any(k in name for k in non_writing_keywords):
-            # Fallback: include steps that don't match either category
-            writing_steps.append(step)
+        if step.output_type == "draft" or not step.output_type:
+            draft_steps.append(step)
     
-    # Build article from artifact files (full content, not truncated result)
-    article_parts = []
-    for step in writing_steps:
+    # Build final product from artifact files (full content, not truncated result)
+    parts = []
+    for step in draft_steps:
         content = ""
         if step.artifact_path and os.path.exists(step.artifact_path):
             try:
@@ -397,16 +423,15 @@ def _aggregate_workflow_result(task: models.Task, steps: list, db: Session):
         
         cleaned = _clean_step_content(content)
         if cleaned:
-            article_parts.append(cleaned)
+            parts.append(cleaned)
     
     # Deduplicate: remove paragraphs that appear in multiple steps
     seen_paragraphs = set()
     deduped_parts = []
-    for part in article_parts:
+    for part in parts:
         paragraphs = part.split("\n\n")
         unique_paras = []
         for para in paragraphs:
-            # Use first 100 chars as fingerprint for dedup
             fingerprint = para.strip()[:100]
             if fingerprint and fingerprint not in seen_paragraphs:
                 seen_paragraphs.add(fingerprint)
@@ -414,15 +439,17 @@ def _aggregate_workflow_result(task: models.Task, steps: list, db: Session):
         if unique_paras:
             deduped_parts.append("\n\n".join(unique_paras))
     
-    # Assemble final article
-    article_body = "\n\n".join(deduped_parts)
+    # Assemble final product
+    body = "\n\n".join(deduped_parts)
     
-    # Build title and description header
+    # Build header
+    cfg = task.workflow_config or {}
+    product_description = cfg.get("product_description", task.title)
     header = f"# {task.title}\n\n"
     if task.description:
         header += f"{task.description}\n\n"
     
-    task.result = header + article_body
+    task.result = header + body
     
     # Write final_artifact.md
     task_dir = os.path.join(os.path.dirname(__file__), "workspace", "tasks", str(task.id))

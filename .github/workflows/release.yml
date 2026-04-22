@@ -1,0 +1,217 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  ENV: production
+
+jobs:
+  build:
+    name: Build (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            arch: aarch64
+          - platform: macos-13
+            target: x86_64-apple-darwin
+            arch: x64
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      # ============================================
+      # 1. Checkout source code
+      # ============================================
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ============================================
+      # 2. Install Node.js 20
+      # ============================================
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # ============================================
+      # 3. Install Rust with target
+      # ============================================
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # ============================================
+      # 4. Install Python 3.11
+      # ============================================
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # ============================================
+      # 5. Install uv (Astral Python package manager)
+      # ============================================
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      # ============================================
+      # 6. Build frontend
+      # ============================================
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      # ============================================
+      # 7. Build backend with PyInstaller
+      # ============================================
+      - name: Build backend
+        run: |
+          cd backend
+          uv sync
+          uv pip install pyinstaller
+          chmod +x scripts/build_backend.sh
+          ./scripts/build_backend.sh
+
+      # ============================================
+      # 8. Copy binaries to Tauri
+      # ============================================
+      - name: Prepare Tauri binaries
+        run: |
+          mkdir -p desktop/src-tauri/binaries
+          cp backend/dist/agent-factory-backend desktop/src-tauri/binaries/agent-factory-backend
+          chmod +x desktop/src-tauri/binaries/agent-factory-backend
+          brew install redis
+          cp "$(brew --prefix redis)/bin/redis-server" desktop/src-tauri/binaries/redis-server
+          chmod +x desktop/src-tauri/binaries/redis-server
+
+      # ============================================
+      # 9. Build Tauri desktop app
+      # ============================================
+      - name: Build Tauri
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          cd desktop/src-tauri
+          cargo install tauri-cli --locked
+          cargo tauri build --target ${{ matrix.target }}
+
+      # ============================================
+      # 10. Rename and collect artifacts
+      # ============================================
+      - name: Prepare artifacts
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ARCH="${{ matrix.arch }}"
+          TARGET="${{ matrix.target }}"
+
+          DMG_SRC=$(find "desktop/src-tauri/target/${TARGET}/release/bundle/dmg" -name '*.dmg' | head -n 1)
+          APP_TAR_SRC=$(find "desktop/src-tauri/target/${TARGET}/release/bundle/macos" -name '*.app.tar.gz' | head -n 1)
+
+          mkdir -p artifacts
+          cp "$DMG_SRC" "artifacts/Agent-Factory_${VERSION}_${ARCH}.dmg"
+          cp "$APP_TAR_SRC" "artifacts/Agent-Factory_${VERSION}_${ARCH}.app.tar.gz"
+
+          # Copy signature file if updater signing was performed
+          if [ -f "${APP_TAR_SRC}.sig" ]; then
+            cp "${APP_TAR_SRC}.sig" "artifacts/Agent-Factory_${VERSION}_${ARCH}.app.tar.gz.sig"
+          fi
+
+      # ============================================
+      # 11. Upload artifacts for release job
+      # ============================================
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-${{ matrix.arch }}
+          path: artifacts/*
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      # ============================================
+      # 1. Download Apple Silicon (aarch64) artifacts
+      # ============================================
+      - name: Download aarch64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: artifacts-aarch64
+          path: artifacts/aarch64
+
+      # ============================================
+      # 2. Download Intel (x64) artifacts
+      # ============================================
+      - name: Download x64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: artifacts-x64
+          path: artifacts/x64
+
+      # ============================================
+      # 3. Generate Tauri updater latest.json
+      # ============================================
+      - name: Generate latest.json
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+
+          # Read signature for aarch64 (empty string if not signed)
+          SIG_AARCH64=""
+          SIG_FILE_AARCH64="artifacts/aarch64/Agent-Factory_${VERSION}_aarch64.app.tar.gz.sig"
+          if [ -f "$SIG_FILE_AARCH64" ]; then
+            SIG_AARCH64=$(cat "$SIG_FILE_AARCH64")
+          fi
+
+          # Read signature for x64 (empty string if not signed)
+          SIG_X64=""
+          SIG_FILE_X64="artifacts/x64/Agent-Factory_${VERSION}_x64.app.tar.gz.sig"
+          if [ -f "$SIG_FILE_X64" ]; then
+            SIG_X64=$(cat "$SIG_FILE_X64")
+          fi
+
+          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          REPO="${{ github.repository }}"
+
+          cat > latest.json <<EOF
+          {
+            "version": "${VERSION}",
+            "notes": "Release ${GITHUB_REF_NAME}",
+            "pub_date": "${PUB_DATE}",
+            "platforms": {
+              "darwin-aarch64": {
+                "signature": "${SIG_AARCH64}",
+                "url": "https://github.com/${REPO}/releases/download/${GITHUB_REF_NAME}/Agent-Factory_${VERSION}_aarch64.app.tar.gz"
+              },
+              "darwin-x86_64": {
+                "signature": "${SIG_X64}",
+                "url": "https://github.com/${REPO}/releases/download/${GITHUB_REF_NAME}/Agent-Factory_${VERSION}_x64.app.tar.gz"
+              }
+            }
+          }
+          EOF
+
+      # ============================================
+      # 4. Create draft release and upload all assets
+      # ============================================
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            artifacts/aarch64/*
+            artifacts/x64/*
+            latest.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

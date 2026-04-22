@@ -3,6 +3,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
+from app.tools import get_agent_tools, run_llm_with_tools
 from app import models
 from app.database import SessionLocal
 
@@ -39,14 +40,14 @@ async def _execute_with_agent(task: models.Task, db: Session):
         return "Error: Provider not available"
 
     llm = _create_llm_for_agent(agent, provider)
+    tools = get_agent_tools(agent, override_root_dir=task.file_root_dir or None)
     messages = [
         SystemMessage(content=agent.system_prompt or "You are a helpful assistant."),
         HumanMessage(content=task.description or task.title),
     ]
 
     try:
-        response = await llm.ainvoke(messages)
-        return response.content
+        return await run_llm_with_tools(llm, messages, tools)
     except Exception as e:
         return f"Error: {e}"
 
@@ -98,6 +99,7 @@ async def _execute_with_group(task: models.Task, db: Session):
             continue
 
         llm = _create_llm_for_agent(agent, provider)
+        tools = get_agent_tools(agent, override_root_dir=task.file_root_dir or None)
         expert_context = (
             "\n\n【任务说明】你是一名领域专家。主持人向你提出了一个问题/议题，"
             "请你基于专业知识给出结构化、有深度的回答。"
@@ -108,8 +110,8 @@ async def _execute_with_group(task: models.Task, db: Session):
         ]
 
         try:
-            response = await llm.ainvoke(messages)
-            expert_responses.append({"agent_name": agent.name, "response": response.content})
+            content = await run_llm_with_tools(llm, messages, tools)
+            expert_responses.append({"agent_name": agent.name, "response": content})
         except Exception as e:
             expert_responses.append({"agent_name": agent.name, "response": f"Error: {e}"})
 
@@ -121,14 +123,15 @@ async def _execute_with_group(task: models.Task, db: Session):
         ).first()
         if provider and provider.is_enabled:
             llm = _create_llm_for_agent(moderator, provider)
+            tools = get_agent_tools(moderator, override_root_dir=task.file_root_dir or None)
             summary_prompt = _build_moderator_summary_prompt(task_prompt, expert_responses)
             messages = [
                 SystemMessage(content=moderator.system_prompt or "You are a helpful assistant."),
                 HumanMessage(content=summary_prompt),
             ]
             try:
-                response = await llm.ainvoke(messages)
-                return response.content
+                content = await run_llm_with_tools(llm, messages, tools)
+                return content
             except Exception as e:
                 return f"Error in summary: {e}\n\n" + "\n\n".join(
                     [f"{er['agent_name']}: {er['response']}" for er in expert_responses]

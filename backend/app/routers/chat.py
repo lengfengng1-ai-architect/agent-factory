@@ -141,6 +141,13 @@ async def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(ge
         context_window=context_window,
     )
 
+    # Determine file root directory
+    override_root = None
+    if group_id:
+        group = db.query(models.Group).filter(models.Group.id == group_id).first()
+        if group and group.file_root_dir:
+            override_root = group.file_root_dir
+
     llm = ChatOpenAI(
         model=model,
         api_key=api_key,
@@ -154,11 +161,12 @@ async def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(ge
         llm_instance: ChatOpenAI,
         group_id: int | None,
         agent_name: str,
+        override_root: str | None,
     ):
         """Run LLM generation in background, saving partial results to Redis."""
         full_response = ""
         try:
-            tools = get_agent_tools(agent)
+            tools = get_agent_tools(agent, override_root_dir=override_root)
 
             if tools:
                 llm_with_tools = llm_instance.bind_tools(tools)
@@ -218,7 +226,7 @@ async def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(ge
 
     # Start new background generation task
     task = asyncio.create_task(
-        _background_generate(agent_id, messages, llm, group_id, agent.name)
+        _background_generate(agent_id, messages, llm, group_id, agent.name, override_root)
     )
     _generating_tasks[agent_id] = task
 

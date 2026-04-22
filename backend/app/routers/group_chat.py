@@ -12,6 +12,7 @@ from app.context_manager import build_messages_with_budget, get_model_context_wi
 from app.summarizer import generate_summary, maybe_use_summary, get_summaries_for_group
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+from app.tools import get_agent_tools, run_llm_with_tools
 import json
 
 router = APIRouter()
@@ -204,13 +205,10 @@ def _brainstorm_chat(group, user_message, db, file_contents: list[dict] = None):
             )
 
             llm = _create_llm(agent, provider)
-            full_response = ""
-
-            async for chunk in llm.astream(messages):
-                text = chunk.content
-                if text:
-                    full_response += text
-                    yield f"data: {json.dumps({'agent_id': agent.id, 'agent_name': agent.name, 'content': text, 'done': False}, ensure_ascii=False)}\n\n"
+            tools = get_agent_tools(agent, override_root_dir=group.file_root_dir or None)
+            content = await run_llm_with_tools(llm, messages, tools)
+            full_response = content
+            yield f"data: {json.dumps({'agent_id': agent.id, 'agent_name': agent.name, 'content': content, 'done': False}, ensure_ascii=False)}\n\n"
 
             redis_client.append_group_chat_message(group.id, "assistant", agent.id, agent.name, full_response)
             yield f"data: {json.dumps({'agent_id': agent.id, 'agent_name': agent.name, 'content': '', 'done': True}, ensure_ascii=False)}\n\n"
@@ -316,13 +314,10 @@ def _debate_chat(group, user_message, db, file_contents: list[dict] = None):
 
                 messages = _build_debate_messages(agent, history, side, r + 1, file_contents)
                 llm = _create_llm(agent, provider)
-                full_response = ""
-
-                async for chunk in llm.astream(messages):
-                    text = chunk.content
-                    if text:
-                        full_response += text
-                        yield f"data: {json.dumps({'agent_id': agent.id, 'agent_name': f'{agent.name} ({side})', 'content': text, 'done': False, 'round': r+1, 'side': side}, ensure_ascii=False)}\n\n"
+                tools = get_agent_tools(agent, override_root_dir=group.file_root_dir or None)
+                content = await run_llm_with_tools(llm, messages, tools)
+                full_response = content
+                yield f"data: {json.dumps({'agent_id': agent.id, 'agent_name': f'{agent.name} ({side})', 'content': content, 'done': False, 'round': r+1, 'side': side}, ensure_ascii=False)}\n\n"
 
                 redis_client.append_group_chat_message(
                     group.id, "assistant", agent.id, f"{agent.name} ({side})", full_response
@@ -350,13 +345,10 @@ def _debate_chat(group, user_message, db, file_contents: list[dict] = None):
                         HumanMessage(content=summary_prompt),
                     ]
                     llm = _create_llm(summary_agent, provider)
-                    full_response = ""
-
-                    async for chunk in llm.astream(messages):
-                        text = chunk.content
-                        if text:
-                            full_response += text
-                            yield f"data: {json.dumps({'agent_id': summary_agent.id, 'agent_name': f'{summary_agent.name} (总结)', 'content': text, 'done': False, 'round': rounds+1, 'phase': 'summary'}, ensure_ascii=False)}\n\n"
+                    tools = get_agent_tools(summary_agent, override_root_dir=group.file_root_dir or None)
+                    content = await run_llm_with_tools(llm, messages, tools)
+                    full_response = content
+                    yield f"data: {json.dumps({'agent_id': summary_agent.id, 'agent_name': f'{summary_agent.name} (总结)', 'content': content, 'done': False, 'round': rounds+1, 'phase': 'summary'}, ensure_ascii=False)}\n\n"
 
                     redis_client.append_group_chat_message(
                         group.id, "assistant", summary_agent.id,
@@ -432,14 +424,12 @@ def _moderator_chat(group, user_message, db, file_contents: list[dict] = None):
                 continue
 
             llm = _create_llm(agent, provider)
+            tools = get_agent_tools(agent, override_root_dir=group.file_root_dir or None)
             messages = _build_moderator_expert_messages(agent, user_message, file_contents)
 
-            response = ""
-            async for chunk in llm.astream(messages):
-                text = chunk.content
-                if text:
-                    response += text
-                    yield f"data: {json.dumps({'phase': 'expert', 'agent_id': agent.id, 'agent_name': agent.name, 'content': text, 'done': False}, ensure_ascii=False)}\n\n"
+            content = await run_llm_with_tools(llm, messages, tools)
+            response = content
+            yield f"data: {json.dumps({'phase': 'expert', 'agent_id': agent.id, 'agent_name': agent.name, 'content': content, 'done': False}, ensure_ascii=False)}\n\n"
 
             expert_responses.append({"agent_id": agent.id, "agent_name": agent.name, "response": response})
             redis_client.append_group_chat_message(group.id, "assistant", agent.id, agent.name, response)
@@ -455,6 +445,7 @@ def _moderator_chat(group, user_message, db, file_contents: list[dict] = None):
                 summary_prompt = _build_moderator_summary_prompt(user_message, expert_responses)
 
                 llm = _create_llm(moderator, provider)
+                tools = get_agent_tools(moderator, override_root_dir=group.file_root_dir or None)
                 messages = [
                     SystemMessage(
                         content=moderator.system_prompt or "You are a helpful assistant."
@@ -462,12 +453,9 @@ def _moderator_chat(group, user_message, db, file_contents: list[dict] = None):
                     HumanMessage(content=summary_prompt),
                 ]
 
-                full_response = ""
-                async for chunk in llm.astream(messages):
-                    text = chunk.content
-                    if text:
-                        full_response += text
-                        yield f"data: {json.dumps({'phase': 'moderator', 'agent_id': moderator.id, 'agent_name': moderator.name, 'content': text, 'done': False}, ensure_ascii=False)}\n\n"
+                content = await run_llm_with_tools(llm, messages, tools)
+                full_response = content
+                yield f"data: {json.dumps({'phase': 'moderator', 'agent_id': moderator.id, 'agent_name': moderator.name, 'content': content, 'done': False}, ensure_ascii=False)}\n\n"
 
                 redis_client.append_group_chat_message(
                     group.id, "assistant", moderator.id, moderator.name, full_response

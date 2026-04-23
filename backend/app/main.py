@@ -3,7 +3,8 @@ import sys
 from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.responses import FileResponse
 from sqlalchemy import text
 from app.database import engine, Base, get_db, data_dir
 from app.routers import agents, groups, tasks, chat, models, providers, group_chat, files, summaries, feishu
@@ -144,10 +145,46 @@ def health_check():
     return {"status": "ok"}
 
 
-# Mount static files LAST so API routes take precedence
+# ── Static files middleware (SPA mode) ──────────────────────────────────────
+class StaticFilesMiddleware:
+    """Serve frontend static files without breaking FastAPI redirect_slashes."""
+
+    def __init__(self, app: ASGIApp, static_dir: str):
+        self.app = app
+        self.static_dir = static_dir
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope["path"]
+
+        # Let API requests pass through to FastAPI router
+        if path.startswith("/api"):
+            await self.app(scope, receive, send)
+            return
+
+        # Try to serve the requested file
+        file_path = os.path.join(self.static_dir, path.lstrip("/"))
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            response = FileResponse(file_path)
+            await response(scope, receive, send)
+            return
+
+        # Fallback to index.html for SPA routes
+        index_path = os.path.join(self.static_dir, "index.html")
+        if os.path.exists(index_path):
+            response = FileResponse(index_path)
+            await response(scope, receive, send)
+            return
+
+        await self.app(scope, receive, send)
+
+
 static_dir = _get_static_dir()
 if static_dir:
-    app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
+    app.add_middleware(StaticFilesMiddleware, static_dir=static_dir)
 
 
 @app.on_event("startup")

@@ -124,12 +124,22 @@ jobs:
           APP_TAR_SRC=$(find "desktop/src-tauri/target/${TARGET}/release/bundle/macos" -name '*.app.tar.gz' | head -n 1)
 
           mkdir -p artifacts
-          cp "$DMG_SRC" "artifacts/Agent-Factory_${VERSION}_${ARCH}.dmg"
-          cp "$APP_TAR_SRC" "artifacts/Agent-Factory_${VERSION}_${ARCH}.app.tar.gz"
 
-          # Copy signature file if updater signing was performed
-          if [ -f "${APP_TAR_SRC}.sig" ]; then
-            cp "${APP_TAR_SRC}.sig" "artifacts/Agent-Factory_${VERSION}_${ARCH}.app.tar.gz.sig"
+          if [ -z "$DMG_SRC" ] || [ ! -f "$DMG_SRC" ]; then
+            echo "ERROR: .dmg not found in desktop/src-tauri/target/${TARGET}/release/bundle/dmg/"
+            find "desktop/src-tauri/target/${TARGET}/release/bundle/" -type f
+            exit 1
+          fi
+          cp "$DMG_SRC" "artifacts/Agent-Factory_${VERSION}_${ARCH}.dmg"
+
+          if [ -n "$APP_TAR_SRC" ] && [ -f "$APP_TAR_SRC" ]; then
+            cp "$APP_TAR_SRC" "artifacts/Agent-Factory_${VERSION}_${ARCH}.app.tar.gz"
+            # Copy signature file if updater signing was performed
+            if [ -f "${APP_TAR_SRC}.sig" ]; then
+              cp "${APP_TAR_SRC}.sig" "artifacts/Agent-Factory_${VERSION}_${ARCH}.app.tar.gz.sig"
+            fi
+          else
+            echo "WARNING: .app.tar.gz not found — updater artifacts will not be available for ${ARCH}"
           fi
 
       # ============================================

@@ -1,6 +1,9 @@
 import os
+import sys
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from app.database import engine, Base, get_db, data_dir
 from app.routers import agents, groups, tasks, chat, models, providers, group_chat, files, summaries, feishu
@@ -95,6 +98,44 @@ app.include_router(providers.router, prefix="/api/providers", tags=["providers"]
 app.include_router(group_chat.router, prefix="/api/groups", tags=["group_chat"])
 app.include_router(summaries.router, prefix="/api", tags=["summaries"])
 app.include_router(feishu.router, prefix="/api", tags=["feishu"])
+
+
+# ── Serve frontend static files (desktop mode) ──────────────────────────────
+def _get_static_dir() -> str | None:
+    """Auto-detect frontend/dist directory for static file serving.
+
+    Priority:
+      1. AGENT_FACTORY_STATIC_DIR env var
+      2. PyInstaller onefile mode — dist/ next to the original executable
+      3. Dev mode — ../../frontend/dist relative to this file
+    """
+    # 1. explicit env var
+    env_dir = os.environ.get("AGENT_FACTORY_STATIC_DIR")
+    if env_dir and os.path.isdir(env_dir) and os.path.exists(os.path.join(env_dir, "index.html")):
+        return env_dir
+
+    # 2. PyInstaller onefile mode: sys.argv[0] points to the original binary
+    exe_path = os.path.abspath(sys.argv[0] if hasattr(sys, "argv") and sys.argv else sys.executable)
+    exe_dir = os.path.dirname(exe_path)
+    for candidate in (
+        os.path.join(exe_dir, "dist"),
+        os.path.normpath(os.path.join(exe_dir, "..", "dist")),
+        os.path.normpath(os.path.join(exe_dir, "..", "Resources", "dist")),
+    ):
+        if os.path.isdir(candidate) and os.path.exists(os.path.join(candidate, "index.html")):
+            return candidate
+
+    # 3. dev mode — relative to backend/app/main.py
+    dev_dir = Path(__file__).parent.parent.parent / "frontend" / "dist"
+    if dev_dir.exists() and (dev_dir / "index.html").exists():
+        return str(dev_dir.resolve())
+
+    return None
+
+
+static_dir = _get_static_dir()
+if static_dir:
+    app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
 
 
 @app.get("/api/health")

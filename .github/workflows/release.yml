@@ -5,9 +5,10 @@ on:
     tags:
       - 'v*'
 
-# Cancel any in-progress release workflow when a new one is triggered
+# Cancel ALL in-progress release workflows when a new one is triggered
+# (regardless of which tag triggered it)
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: release
   cancel-in-progress: true
 
 env:
@@ -130,7 +131,9 @@ jobs:
           curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
 
       - name: Install tauri-cli
-        run: cargo binstall cargo-tauri --locked --no-confirm
+        run: |
+          # Try cargo-binstall first, fall back to cargo install on failure
+          cargo binstall cargo-tauri --locked --no-confirm || cargo install tauri-cli --locked
 
       - name: Build Tauri
         env:

@@ -6,16 +6,22 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 
 
 def _get_data_dir() -> Path:
+    # 1. Explicit env var (highest priority, used by desktop app --data-dir)
     env_dir = os.environ.get("AGENT_FACTORY_DATA_DIR")
     if env_dir:
         return Path(env_dir)
 
-    system = platform.system()
-    if system == "Windows":
-        appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
-        return Path(appdata) / "Agent Factory"
-    else:
-        return Path.home() / ".agent-factory"
+    # 2. Desktop mode: ENV=production is set by Tauri launcher
+    if os.environ.get("ENV") == "production":
+        system = platform.system()
+        if system == "Windows":
+            appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
+            return Path(appdata) / "Agent Factory"
+        else:
+            return Path.home() / ".agent-factory"
+
+    # 3. Web dev mode: keep backward compatibility, use current directory
+    return Path(".")
 
 
 data_dir = _get_data_dir()

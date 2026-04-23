@@ -8,6 +8,7 @@ from app import models
 from app.database import workspace_dir
 
 
+
 def get_workspace_path(agent_id: int) -> str:
     """Get the workspace directory path for an agent."""
     path = os.path.join(workspace_dir, str(agent_id))
@@ -193,9 +194,7 @@ def get_agent_tools(
         root = override_root_dir or cfg.get("file_access_root", "")
         if root:
             if not os.path.isabs(root):
-                root = os.path.join(
-                    os.path.dirname(os.path.dirname(__file__)), root
-                )
+                root = os.path.join(workspace_dir, root)
         else:
             root = get_workspace_path(agent.id)
         os.makedirs(root, exist_ok=True)

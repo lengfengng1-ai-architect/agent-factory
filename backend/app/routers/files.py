@@ -7,7 +7,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from typing import List
-from app.database import get_db
+from app.database import get_db, workspace_dir
 from app import models
 from app import redis_client
 from datetime import datetime, timezone
@@ -20,7 +20,7 @@ MAX_FILES_PER_UPLOAD = 5
 
 def _get_chat_files_dir(entity_type: str, entity_id: int) -> str:
     """Get the storage directory for chat files."""
-    base = os.path.join(os.path.dirname(os.path.dirname(__file__)), "workspace", "chat_files")
+    base = os.path.join(workspace_dir, "chat_files")
     path = os.path.join(base, f"{entity_type}_{entity_id}")
     os.makedirs(path, exist_ok=True)
     return path
@@ -185,7 +185,7 @@ def delete_agent_file(agent_id: int, file_id: str, db: Session = Depends(get_db)
 def list_task_artifacts(task_id: int):
     """List artifact files for a workflow task."""
     import os
-    task_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspace", "tasks", str(task_id)))
+    task_dir = os.path.join(workspace_dir, "tasks", str(task_id))
     if not os.path.exists(task_dir):
         return {"artifacts": []}
     
@@ -207,7 +207,7 @@ def read_artifact(path: str):
     import os
     # Security: ensure path is within workspace
     abs_path = os.path.abspath(path)
-    workspace_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspace"))
+    workspace_root = os.path.abspath(workspace_dir)
     if not abs_path.startswith(workspace_root):
         raise HTTPException(status_code=403, detail="Access denied")
     if not os.path.exists(abs_path) or not os.path.isfile(abs_path):

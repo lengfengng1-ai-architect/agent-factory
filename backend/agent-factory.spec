@@ -6,7 +6,7 @@ a = Analysis(
     ['app/cli.py'],
     pathex=['.', '.venv/lib/python3.11/site-packages'],
     binaries=[],
-    datas=[],
+    datas=[('../frontend/dist', 'dist')],
     hiddenimports=[
         # SQLAlchemy
         'sqlalchemy',
@@ -67,6 +67,7 @@ a = Analysis(
         'app.redis_client',
         'app.feishu_client',
         'app.feishu_ws',
+        'starlette.staticfiles', 'aiofiles',
     ],
     hookspath=[],
     hooksconfig={},

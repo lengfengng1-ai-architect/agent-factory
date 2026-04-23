@@ -139,14 +139,15 @@ def _get_static_dir() -> str | None:
     return None
 
 
-static_dir = _get_static_dir()
-if static_dir:
-    app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
-
-
 @app.get("/api/health")
 def health_check():
     return {"status": "ok"}
+
+
+# Mount static files LAST so API routes take precedence
+static_dir = _get_static_dir()
+if static_dir:
+    app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
 
 
 @app.on_event("startup")

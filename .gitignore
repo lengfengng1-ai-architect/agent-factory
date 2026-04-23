@@ -61,3 +61,6 @@ desktop/src-tauri/target/
 # Tauri binaries (built from backend, except .gitkeep)
 desktop/src-tauri/binaries/*
 !desktop/src-tauri/binaries/.gitkeep
+
+# Tauri generated schemas
+desktop/src-tauri/gen/

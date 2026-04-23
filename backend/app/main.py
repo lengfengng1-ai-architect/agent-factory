@@ -114,7 +114,13 @@ def _get_static_dir() -> str | None:
     if env_dir and os.path.isdir(env_dir) and os.path.exists(os.path.join(env_dir, "index.html")):
         return env_dir
 
-    # 2. PyInstaller onefile mode: sys.argv[0] points to the original binary
+    # 2. PyInstaller onefile mode — dist/ inside the MEIPASS temp dir
+    if hasattr(sys, "_MEIPASS"):
+        meipass_dist = os.path.join(sys._MEIPASS, "dist")
+        if os.path.isdir(meipass_dist) and os.path.exists(os.path.join(meipass_dist, "index.html")):
+            return meipass_dist
+
+    # 3. Desktop .app bundle — Resources/dist/ next to the original binary
     exe_path = os.path.abspath(sys.argv[0] if hasattr(sys, "argv") and sys.argv else sys.executable)
     exe_dir = os.path.dirname(exe_path)
     for candidate in (

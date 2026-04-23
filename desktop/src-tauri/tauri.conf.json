@@ -19,7 +19,10 @@
     "macOS": {
       "minimumSystemVersion": "10.13"
     },
-    "externalBin": ["binaries/agent-factory-backend", "binaries/redis-server"]
+    "externalBin": ["binaries/agent-factory-backend", "binaries/redis-server"],
+    "resources": {
+      "../../frontend/dist": "dist"
+    }
   },
   "plugins": {
     "updater": {

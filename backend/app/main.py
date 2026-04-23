@@ -64,9 +64,16 @@ with engine.connect() as conn:
 app = FastAPI(title="Agent Factory API", version="1.0.0")
 
 if os.environ.get("ENV") == "production":
-    allow_origins = [""]
+    # Desktop app: WebView and backend are same-origin, CORS not needed
+    allow_origins = []
 else:
-    allow_origins = ["http://localhost:*"]
+    # Dev mode: allow common frontend dev server ports
+    allow_origins = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:3000",
+    ]
 
 app.add_middleware(
     CORSMiddleware,

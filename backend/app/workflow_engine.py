@@ -327,7 +327,8 @@ async def execute_step(step: models.WorkflowStep, task: models.Task, db: Session
         result = await run_llm_with_tools(llm, messages, tools)
         
         # Save artifact to workspace
-        task_dir = os.path.join(os.path.dirname(__file__), "workspace", "tasks", str(task.id))
+        from app.database import workspace_dir
+        task_dir = os.path.join(workspace_dir, "tasks", str(task.id))
         os.makedirs(task_dir, exist_ok=True)
         safe_name = "".join(c if c.isalnum() or c in "_-" else "_" for c in step.name)
         artifact_path = os.path.join(task_dir, f"{step.order_index:02d}_{safe_name}.md")
@@ -512,7 +513,8 @@ def _aggregate_workflow_result(task: models.Task, steps: list, db: Session):
     task.result = header + body
     
     # Write final_artifact.md
-    task_dir = os.path.join(os.path.dirname(__file__), "workspace", "tasks", str(task.id))
+    from app.database import workspace_dir
+    task_dir = os.path.join(workspace_dir, "tasks", str(task.id))
     if os.path.exists(task_dir):
         final_path = os.path.join(task_dir, "final_artifact.md")
         try:

@@ -27,6 +27,9 @@ def _get_data_dir() -> Path:
 data_dir = _get_data_dir()
 os.makedirs(data_dir, exist_ok=True)
 
+workspace_dir = data_dir / "workspace"
+os.makedirs(workspace_dir, exist_ok=True)
+
 SQLALCHEMY_DATABASE_URL = f"sqlite:///{data_dir / 'agent_factory.db'}"
 
 engine = create_engine(

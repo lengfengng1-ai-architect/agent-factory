@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.responses import FileResponse
 from sqlalchemy import text
-from app.database import engine, Base, get_db, data_dir
+from app.database import engine, Base, get_db, data_dir, workspace_dir
 from app.routers import agents, groups, tasks, chat, models, providers, group_chat, files, summaries, feishu
 from app.task_engine import start_scheduler
 
@@ -46,10 +46,6 @@ with engine.connect() as conn:
     except Exception:
         conn.execute(text("ALTER TABLE groups ADD COLUMN config TEXT DEFAULT '{}'"))
         conn.commit()
-
-# Ensure workspace directory exists
-workspace_dir = os.path.join(data_dir, "workspace")
-os.makedirs(workspace_dir, exist_ok=True)
 
 # SQLite migration for tasks table: add result, auto_execute, progress columns
 with engine.connect() as conn:

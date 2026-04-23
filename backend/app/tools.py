@@ -5,12 +5,12 @@ from langchain.tools import tool, BaseTool
 from langchain.messages import ToolMessage
 from ddgs import DDGS
 from app import models
+from app.database import workspace_dir
 
 
 def get_workspace_path(agent_id: int) -> str:
     """Get the workspace directory path for an agent."""
-    base = os.path.join(os.path.dirname(os.path.dirname(__file__)), "workspace")
-    path = os.path.join(base, str(agent_id))
+    path = os.path.join(workspace_dir, str(agent_id))
     os.makedirs(path, exist_ok=True)
     return path
 

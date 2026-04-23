@@ -171,9 +171,9 @@ Agent Factory 提供独立的 macOS 桌面应用，无需安装 Python、Node.js
 ### 下载安装
 
 1. 访问 [GitHub Releases](https://github.com/lengfengng1-ai-architect/agent-factory/releases)
-2. 下载对应架构的安装包：
-   - **Apple Silicon (M1/M2/M3)**：`Agent-Factory_vX.X.X_aarch64.dmg`
-   - **Intel Mac**：`Agent-Factory_vX.X.X_x64.dmg`
+2. 下载安装包：`Agent-Factory_vX.X.X_aarch64.dmg`
+   - 支持 Apple Silicon (M1/M2/M3) 原生运行
+   - Intel Mac 可通过 Rosetta 2 运行
 3. 打开 `.dmg`，将 `Agent Factory.app` 拖拽到 `Applications` 文件夹
 4. 首次启动时，macOS 会提示"无法验证开发者"，前往 **系统设置 → 隐私与安全性 → 安全性** 中点击"仍要打开"
 

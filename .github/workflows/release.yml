@@ -20,19 +20,8 @@ permissions:
 
 jobs:
   build:
-    name: Build (${{ matrix.arch }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: macos-latest
-            target: aarch64-apple-darwin
-            arch: aarch64
-          - platform: macos-13
-            target: x86_64-apple-darwin
-            arch: x64
-
-    runs-on: ${{ matrix.platform }}
+    name: Build (aarch64)
+    runs-on: macos-latest
 
     steps:
       # ============================================
@@ -192,7 +181,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
           cd desktop/src-tauri
-          cargo tauri build --target ${{ matrix.target }}
+          cargo tauri build --target aarch64-apple-darwin
 
       # ============================================
       # 10. Rename and collect artifacts
@@ -200,8 +189,7 @@ jobs:
       - name: Prepare artifacts
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          ARCH="${{ matrix.arch }}"
-          TARGET="${{ matrix.target }}"
+          TARGET="aarch64-apple-darwin"
 
           DMG_SRC=$(find "desktop/src-tauri/target/${TARGET}/release/bundle/dmg" -name '*.dmg' | head -n 1)
           APP_TAR_SRC=$(find "desktop/src-tauri/target/${TARGET}/release/bundle/macos" -name '*.app.tar.gz' | head -n 1)
@@ -213,25 +201,21 @@ jobs:
             find "desktop/src-tauri/target/${TARGET}/release/bundle/" -type f
             exit 1
           fi
-          cp "$DMG_SRC" "artifacts/Agent-Factory_${VERSION}_${ARCH}.dmg"
+          cp "$DMG_SRC" "artifacts/Agent-Factory_${VERSION}_aarch64.dmg"
 
           if [ -n "$APP_TAR_SRC" ] && [ -f "$APP_TAR_SRC" ]; then
-            cp "$APP_TAR_SRC" "artifacts/Agent-Factory_${VERSION}_${ARCH}.app.tar.gz"
-            # Copy signature file if updater signing was performed
+            cp "$APP_TAR_SRC" "artifacts/Agent-Factory_${VERSION}_aarch64.app.tar.gz"
             if [ -f "${APP_TAR_SRC}.sig" ]; then
-              cp "${APP_TAR_SRC}.sig" "artifacts/Agent-Factory_${VERSION}_${ARCH}.app.tar.gz.sig"
+              cp "${APP_TAR_SRC}.sig" "artifacts/Agent-Factory_${VERSION}_aarch64.app.tar.gz.sig"
             fi
           else
-            echo "WARNING: .app.tar.gz not found — updater artifacts will not be available for ${ARCH}"
+            echo "WARNING: .app.tar.gz not found — updater artifacts will not be available"
           fi
 
-      # ============================================
-      # 11. Upload artifacts for release job
-      # ============================================
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: artifacts-${{ matrix.arch }}
+          name: artifacts-aarch64
           path: artifacts/*
 
   release:
@@ -240,43 +224,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # ============================================
-      # 1. Download Apple Silicon (aarch64) artifacts
-      # ============================================
       - name: Download aarch64 artifacts
         uses: actions/download-artifact@v4
         with:
           name: artifacts-aarch64
           path: artifacts/aarch64
 
-      # ============================================
-      # 2. Download Intel (x64) artifacts
-      # ============================================
-      - name: Download x64 artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: artifacts-x64
-          path: artifacts/x64
-
-      # ============================================
-      # 3. Generate Tauri updater latest.json
-      # ============================================
       - name: Generate latest.json
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
 
-          # Read signature for aarch64 (empty string if not signed)
-          SIG_AARCH64=""
-          SIG_FILE_AARCH64="artifacts/aarch64/Agent-Factory_${VERSION}_aarch64.app.tar.gz.sig"
-          if [ -f "$SIG_FILE_AARCH64" ]; then
-            SIG_AARCH64=$(cat "$SIG_FILE_AARCH64")
-          fi
-
-          # Read signature for x64 (empty string if not signed)
-          SIG_X64=""
-          SIG_FILE_X64="artifacts/x64/Agent-Factory_${VERSION}_x64.app.tar.gz.sig"
-          if [ -f "$SIG_FILE_X64" ]; then
-            SIG_X64=$(cat "$SIG_FILE_X64")
+          SIG=""
+          SIG_FILE="artifacts/aarch64/Agent-Factory_${VERSION}_aarch64.app.tar.gz.sig"
+          if [ -f "$SIG_FILE" ]; then
+            SIG=$(cat "$SIG_FILE")
           fi
 
           PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -289,12 +250,8 @@ jobs:
             "pub_date": "${PUB_DATE}",
             "platforms": {
               "darwin-aarch64": {
-                "signature": "${SIG_AARCH64}",
+                "signature": "${SIG}",
                 "url": "https://github.com/${REPO}/releases/download/${GITHUB_REF_NAME}/Agent-Factory_${VERSION}_aarch64.app.tar.gz"
-              },
-              "darwin-x86_64": {
-                "signature": "${SIG_X64}",
-                "url": "https://github.com/${REPO}/releases/download/${GITHUB_REF_NAME}/Agent-Factory_${VERSION}_x64.app.tar.gz"
               }
             }
           }
@@ -309,7 +266,6 @@ jobs:
           draft: true
           files: |
             artifacts/aarch64/*
-            artifacts/x64/*
             latest.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

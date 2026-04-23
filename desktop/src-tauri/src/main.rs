@@ -7,7 +7,6 @@ use tauri::Manager;
 struct AppState {
     backend_process: Mutex<Option<Child>>,
     redis_process: Mutex<Option<Child>>,
-    backend_port: Mutex<u16>,
 }
 
 fn find_free_port(start: u16, end: u16) -> Option<u16> {
@@ -104,7 +103,6 @@ fn main() {
         .manage(AppState {
             backend_process: Mutex::new(Some(backend_process)),
             redis_process: Mutex::new(redis_process),
-            backend_port: Mutex::new(backend_port),
         })
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {

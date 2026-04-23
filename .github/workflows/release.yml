@@ -91,9 +91,14 @@ jobs:
           mkdir -p desktop/src-tauri/binaries
           cp backend/dist/agent-factory-backend desktop/src-tauri/binaries/agent-factory-backend
           chmod +x desktop/src-tauri/binaries/agent-factory-backend
+          # Tauri externalBin requires architecture-specific filenames
+          cp backend/dist/agent-factory-backend "desktop/src-tauri/binaries/agent-factory-backend-${{ matrix.target }}"
+          chmod +x "desktop/src-tauri/binaries/agent-factory-backend-${{ matrix.target }}"
           brew install redis
           cp "$(brew --prefix redis)/bin/redis-server" desktop/src-tauri/binaries/redis-server
           chmod +x desktop/src-tauri/binaries/redis-server
+          cp "$(brew --prefix redis)/bin/redis-server" "desktop/src-tauri/binaries/redis-server-${{ matrix.target }}"
+          chmod +x "desktop/src-tauri/binaries/redis-server-${{ matrix.target }}"
 
       # ============================================
       # 9. Build Tauri desktop app

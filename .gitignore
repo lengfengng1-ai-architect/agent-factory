@@ -54,3 +54,6 @@ logs
 .hermes/*
 AGENTS.md
 AGENTS.md
+
+# Tauri build output
+desktop/src-tauri/target/

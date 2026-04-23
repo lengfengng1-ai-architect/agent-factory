@@ -160,6 +160,55 @@ Agent / Group 聊天支持上传文件（txt / pdf / md / 代码等），自动�
 | **实时通信** | Server-Sent Events (SSE) |
 | **拖拽** | @dnd-kit |
 | **架构** | REST API + SQLite 本地存储 + Redis 缓存，前后端通过 Vite Proxy 直连 |
+| **桌面应用** | Tauri 2.0 (Rust) + PyInstaller |
+
+---
+
+## macOS 桌面应用
+
+Agent Factory 提供独立的 macOS 桌面应用，无需安装 Python、Node.js、Redis 等任何依赖，下载即可运行。
+
+### 下载安装
+
+1. 访问 [GitHub Releases](https://github.com/lengfengng1-ai-architect/agent-factory/releases)
+2. 下载对应架构的安装包：
+   - **Apple Silicon (M1/M2/M3)**：`Agent-Factory_vX.X.X_aarch64.dmg`
+   - **Intel Mac**：`Agent-Factory_vX.X.X_x64.dmg`
+3. 打开 `.dmg`，将 `Agent Factory.app` 拖拽到 `Applications` 文件夹
+4. 首次启动时，macOS 会提示"无法验证开发者"，前往 **系统设置 → 隐私与安全性 → 安全性** 中点击"仍要打开"
+
+### 自动更新
+
+桌面应用内置自动更新功能。当有新版本发布时，应用会自动检测并提示下载更新。
+
+### 从源码构建桌面应用
+
+需要 Rust、Node.js、Python 3.11 环境。
+
+```bash
+# 1. 构建前端
+cd frontend
+npm ci
+npm run build
+
+# 2. 构建后端（PyInstaller）
+cd ../backend
+uv sync
+uv pip install pyinstaller
+./scripts/build_backend.sh
+
+# 3. 准备二进制
+cp backend/dist/agent-factory-backend desktop/src-tauri/binaries/
+brew install redis
+cp $(which redis-server) desktop/src-tauri/binaries/redis-server
+
+# 4. 构建 Tauri 桌面应用
+cd desktop/src-tauri
+cargo install tauri-cli --locked
+cargo tauri build
+
+# 产物：desktop/src-tauri/target/release/bundle/dmg/Agent Factory_*.dmg
+```
 
 ---
 
@@ -266,6 +315,8 @@ cd frontend && npm run dev
 │           ├── TaskCard.tsx
 │           ├── TaskModal.tsx
 │           └── TaskDetailPanel.tsx
+├── desktop/              # Tauri 2.0 桌面应用壳
+│   └── src-tauri/        # Rust 源码 + Tauri 配置
 └── .hermes/
     └── plans/                   # 开发计划文件（git-ignored）
 ```

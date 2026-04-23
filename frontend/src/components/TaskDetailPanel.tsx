@@ -16,7 +16,6 @@ export default function TaskDetailPanel({ task, onClose }: Props) {
   const [activeTab, setActiveTab] = useState<'workflow' | 'result'>('workflow')
 
   const hasWorkflow = !!(task.workflow_plan || task.workflow_status)
-  const showResultTab = hasWorkflow && task.status === 'completed'
 
   const { data: workflowData } = useQuery({
     queryKey: ['task_workflow', task.id],

@@ -36,7 +36,6 @@ export default function TaskModal({ task, mode, onClose, onSave, onSwitchEdit }:
   const [status, setStatus] = useState<TaskStatus>('pending')
   const [assigneeType, setAssigneeType] = useState<'agent' | 'group'>('agent')
   const [assigneeId, setAssigneeId] = useState<number | null>(null)
-  const [autoExecute, setAutoExecute] = useState(true)
   const [fileRootDir, setFileRootDir] = useState('')
   const [manualConfirm, setManualConfirm] = useState(false)
   // Artifacts viewer
@@ -49,7 +48,7 @@ export default function TaskModal({ task, mode, onClose, onSave, onSwitchEdit }:
   const { data: workflowData } = useQuery({
     queryKey: ['task_workflow', task?.id],
     queryFn: () => taskApi.getWorkflowProgress(task!.id),
-    enabled: !!task && activeTab === 'workflow',
+    enabled: false,
     refetchInterval: 5000,
   })
 

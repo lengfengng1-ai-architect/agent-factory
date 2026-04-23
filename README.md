@@ -160,7 +160,7 @@ Agent / Group 聊天支持上传文件（txt / pdf / md / 代码等），自动�
 | **实时通信** | Server-Sent Events (SSE) |
 | **拖拽** | @dnd-kit |
 | **架构** | REST API + SQLite 本地存储 + Redis 缓存，前后端通过 Vite Proxy 直连 |
-| **桌面应用** | Tauri 2.0 (Rust) + PyInstaller |
+| **桌面应用** | Tauri 2.0 (Rust) + PyInstaller，内嵌 Redis（端口 16379） |
 
 ---
 
@@ -195,16 +195,17 @@ npm run build
 cd ../backend
 uv sync
 uv pip install pyinstaller
-./scripts/build_backend.sh
+export PYTHONPATH=.
+.venv/bin/python -m PyInstaller agent-factory.spec --noconfirm
 
 # 3. 准备二进制
 cp backend/dist/agent-factory-backend desktop/src-tauri/binaries/
 brew install redis
 cp $(which redis-server) desktop/src-tauri/binaries/redis-server
 
-# 4. 构建 Tauri 桌面应用
+# 4. 构建 Tauri 桌面应用（cargo-binstall 比 cargo install 快很多）
 cd desktop/src-tauri
-cargo install tauri-cli --locked
+cargo binstall cargo-tauri --locked --no-confirm
 cargo tauri build
 
 # 产物：desktop/src-tauri/target/release/bundle/dmg/Agent Factory_*.dmg

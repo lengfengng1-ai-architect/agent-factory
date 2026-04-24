@@ -489,18 +489,131 @@ def _create_browser_tools(agent_id: int) -> List[BaseTool]:
         """
         try:
             page = _get_thread_agent_page(agent_id)
-            # Wait a moment for any remaining dynamic content
-            page.wait_for_timeout(500)
-            text = page.evaluate("""() => {
+            # Wait for dynamic content and network requests to settle
+            try:
+                page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+            page.wait_for_timeout(800)
+
+            # Extract text using multiple strategies for dynamic sites
+            result = page.evaluate(r"""() => {
+                let financialData = [];
+                const seen = new Set();
+
+                // Walk ALL elements looking for numeric values near financial keywords
+                const keywords = ['price', 'Price', 'quote', 'Quote', 'stock', 'Stock',
+                    '行情', '股价', '最新', '涨跌', '涨幅', '今开', '最高', '最低',
+                    '成交量', '成交额', '市值', '市盈率', 'nums', 'zd', 'zxj'];
+
+                document.querySelectorAll('*').forEach(el => {
+                    const cls = el.className || '';
+                    const txt = el.innerText?.trim();
+                    if (!txt || txt.length > 80) return;
+                    const hasFinClass = keywords.some(k => cls.includes(k));
+                    const parentCls = el.parentElement?.className || '';
+                    const parentHasFin = keywords.some(k => parentCls.includes(k));
+                    const hasNumber = /\d/.test(txt);
+                    if ((hasFinClass || parentHasFin) && hasNumber && !seen.has(txt)) {
+                        seen.add(txt);
+                        const label = el.previousElementSibling?.innerText?.trim()?.slice(0, 20) || '';
+                        financialData.push((label ? label + ': ' : '') + txt);
+                    }
+                });
+
+                // Specific selectors for Chinese financial sites
+                const specificSelectors = [
+                    '.nums', '.price_up', '.price_down', '.price_draw',
+                    '.stock-price', '.current-price', '.latest-price',
+                    '[class*="zxj"]', '[class*="zdz"]', '[class*="zdf"]',
+                ];
+                specificSelectors.forEach(sel => {
+                    document.querySelectorAll(sel).forEach(el => {
+                        const txt = el.innerText?.trim();
+                        if (txt && txt.length < 50 && !seen.has(txt)) {
+                            seen.add(txt);
+                            financialData.push('[' + sel + '] ' + txt);
+                        }
+                    });
+                });
+
+                // Page title often contains stock summary
+                const pageTitle = document.title;
+
+                // Extract from window.__INITIAL_STATE__
+                let initialState = null;
+                try {
+                    if (window.__INITIAL_STATE__) {
+                        initialState = JSON.stringify(window.__INITIAL_STATE__, null, 2).slice(0, 3000);
+                    }
+                } catch(e) {}
+
+                // JSON data in script tags
+                let scriptData = [];
+                document.querySelectorAll('script').forEach(s => {
+                    const txt = s.innerText || s.textContent || '';
+                    if (txt.includes('quote') || txt.includes('price') || txt.includes('stock') ||
+                        txt.includes('行情') || txt.includes('symbol')) {
+                        const matches = txt.match(/\{[^}]*"(price|close|open|high|low|volume|quote|symbol|name)"[^}]*\}/gi);
+                        if (matches) scriptData.push(...matches.slice(0, 5));
+                    }
+                });
+
+                // Main page text (cleaned)
                 const clone = document.body.cloneNode(true);
-                const scripts = clone.querySelectorAll('script, style, nav, header, footer, aside');
-                scripts.forEach(el => el.remove());
-                return clone.innerText;
+                clone.querySelectorAll('script, style, nav, header, footer, aside, iframe').forEach(el => el.remove());
+                const mainText = clone.innerText?.trim() || '';
+
+                return {
+                    pageTitle: pageTitle,
+                    mainText: mainText.slice(0, 8000),
+                    financialSnippets: financialData.slice(0, 30),
+                    initialState: initialState,
+                    scriptSnippets: scriptData.slice(0, 10),
+                };
             }""")
-            text = (text or "").strip()
-            if len(text) > 12000:
-                text = text[:12000] + "\n... (truncated)"
-            return text or "(page has no visible text)"
+
+            parts = []
+
+            # Add page title for context
+            title = result.get("pageTitle", "")
+            if title:
+                parts.append(f"Page Title: {title}")
+                parts.append("")
+
+            # Add financial snippets if found
+            fin = result.get("financialSnippets", [])
+            if fin:
+                parts.append("=== DOM Financial Elements ===")
+                parts.extend(fin)
+                parts.append("")
+
+            # Add initial state if found
+            init = result.get("initialState")
+            if init:
+                parts.append("=== Page Initial State (from JS) ===")
+                parts.append(init)
+                parts.append("")
+
+            # Add script snippets if found
+            scripts = result.get("scriptSnippets", [])
+            if scripts:
+                parts.append("=== Script Data Snippets ===")
+                parts.extend(scripts)
+                parts.append("")
+
+            # Add main text
+            main = result.get("mainText", "")
+            if main:
+                parts.append("=== Page Text ===")
+                parts.append(main)
+
+            full = "\n".join(parts).strip()
+            if not full:
+                return "(page has no visible text)"
+            if len(full) > 12000:
+                full = full[:12000] + "\n... (truncated)"
+            return full
         except Exception as e:
             return f"Browser get_text error: {e}"
 
@@ -555,25 +668,31 @@ def get_agent_tools(
 
 
 _BROWSER_TOOL_GUIDE = (
-    "\n\n--- Tool Usage Guide ---\n"
-    "You have access to web_search and browser automation tools. "
-    "Follow these rules STRICTLY:\n\n"
-    "1. When the user asks for REAL-TIME DATA (stock prices, weather, news, "
-    "   sports scores, current events), you MUST use the browser tools. "
-    "   Do NOT say you cannot access real-time data — you CAN via browser_navigate.\n\n"
-    "2. Workflow for real-time queries:\n"
-    "   a) web_search(query) to find multiple relevant URLs\n"
-    "   b) browser_navigate(best_url) to load the page\n"
-    "   c) browser_get_text() to extract the full content\n"
-    "   d) If the data is missing or incomplete, browser_navigate(next_url) "
-    "      to try the NEXT search result. Keep trying until you find the data.\n\n"
-    "3. web_search ONLY returns summaries/snippets. It does NOT contain "
-    "   full page content. For detailed or real-time information, "
-    "   you MUST use browser_navigate + browser_get_text.\n\n"
-    "4. After each browser_navigate, the page waits 1 second for dynamic "
-    "   content to load, then a screenshot is saved for the user to see.\n\n"
-    "5. Do NOT give up if the first URL fails. Use multiple URLs from "
-    "   search results until you find the information."
+    "\n\n--- CRITICAL: Browser Tool Usage Rules ---\n"
+    "You have web_search and browser automation tools. You CAN and SHOULD "
+    "use them WITHOUT asking for permission. Do NOT say you need user authorization. "
+    "Do NOT say you cannot access real-time data. You CAN access ANY public web page.\n\n"
+    "RULE 1 — NEVER ask permission: When user asks for data, DIRECTLY call tools. "
+    "Do NOT preface with 'I cannot' or 'I need authorization'. Just DO IT.\n\n"
+    "RULE 2 — Real-time data workflow (stocks, weather, news, etc.):\n"
+    "   Step 1: web_search(query) → get URLs\n"
+    "   Step 2: browser_navigate(url) → load page\n"
+    "   Step 3: browser_get_text() → extract data\n"
+    "   Step 4: If data missing → browser_navigate(next_url) → try again\n"
+    "   Step 5: Keep trying DIFFERENT URLs until data is found\n\n"
+    "RULE 3 — web_search ONLY gives summaries. For actual data you MUST use "
+    "browser_navigate + browser_get_text. Summaries are NOT sufficient.\n\n"
+    "RULE 4 — Financial sites (东方财富, 同花顺, investing.com, etc.) serve data "
+    "via JavaScript. The browser_get_text tool handles this by waiting for JS "
+    "to execute and extracting from the rendered DOM. It also attempts to read "
+    "data from page scripts (window.__INITIAL_STATE__, etc.).\n\n"
+    "RULE 5 — If you see '-', 'N/A', or empty values in financial data, it means "
+    "the page uses heavy JS rendering. Try:\n"
+    "   a) Wait — the tool already waits for JS, but some sites need more time\n"
+    "   b) Try another URL from search results\n"
+    "   c) Look for data in the page text even if formatted strangely\n\n"
+    "RULE 6 — Do NOT apologize for uncertainty. Do NOT disclaim limitations. "
+    "Report what you found, even if incomplete. If you found partial data, report it."
 )
 
 

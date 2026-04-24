@@ -493,14 +493,6 @@ export default function ChatModal({ agent, onClose }: Props) {
             </div>
           ))}
 
-          {/* Pending hint */}
-          {activeTab === 'chat' && !loading && messages.length > 0 && messages[messages.length - 1].role === 'user' && (
-            <div className="flex justify-start">
-              <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-3 py-2 rounded-lg text-xs">
-                Agent 正在回答中，关闭弹窗也不会中断。请稍后再打开查看完整结果。
-              </div>
-            </div>
-          )}
           <div ref={bottomRef} />
         </div>
 

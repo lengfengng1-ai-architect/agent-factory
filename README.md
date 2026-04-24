@@ -71,7 +71,8 @@ graph TD
 | 多供应商 | 支持 Kimi / OpenAI / DeepSeek / 阿里云百炼 / 火山方舟 / Ollama / Custom |
 | 独立配置 | 每个 Agent 独立设置 Provider、Model、API Key、System Prompt |
 | 实时对话 | SSE 流式传输，打字机式输出，支持历史记录持久化 |
-| **浏览器自动化** | 开启 `enable_browsing` 后 Agent 可操控 Playwright 浏览器，前端实时显示截图 |
+| **浏览器自动化** | 开启 `enable_browsing` 后 Agent 可操控 Playwright 浏览器查询任意领域实时数据（新闻、天气、价格等），前端实时显示截图 |
+| **数据来源追踪** | Agent 查询网页时自动记录使用的搜索和浏览 URL，聊天消息下方展示可折叠的来源链接 |
 | **Thinking 模式** | 支持 DeepSeek reasoner / Kimi K2.6 的思考过程展示 |
 
 ### 🔌 Provider 管理中心

@@ -28,14 +28,19 @@ def get_chat_history(agent_id: int) -> List[Dict[str, Any]]:
     return [json.loads(item) for item in items]
 
 
-def append_chat_message(agent_id: int, role: str, content: str):
-    """Append a message to agent's chat history in Redis."""
+def append_chat_message(agent_id: int, role: str, content: str, sources: List[Dict[str, Any]] = None):
+    """Append a message to agent's chat history in Redis.
+
+    Backward compatible: existing messages without 'sources' still work.
+    """
     key = f"chat_history:{agent_id}"
     message = {
         "role": role,
         "content": content,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+    if sources:
+        message["sources"] = sources
     r.rpush(key, json.dumps(message, ensure_ascii=False))
     r.ltrim(key, -MAX_HISTORY, -1)
 
@@ -101,7 +106,7 @@ def get_group_chat_history(group_id: int) -> List[Dict[str, Any]]:
     return [json.loads(item) for item in items]
 
 
-def append_group_chat_message(group_id: int, role: str, agent_id: int, agent_name: str, content: str):
+def append_group_chat_message(group_id: int, role: str, agent_id: int, agent_name: str, content: str, sources: List[Dict[str, Any]] = None):
     """Append a message to group chat history in Redis."""
     key = f"group_chat_history:{group_id}"
     message = {
@@ -111,6 +116,8 @@ def append_group_chat_message(group_id: int, role: str, agent_id: int, agent_nam
         "content": content,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+    if sources:
+        message["sources"] = sources
     r.rpush(key, json.dumps(message, ensure_ascii=False))
     r.ltrim(key, -MAX_GROUP_HISTORY, -1)
 
@@ -175,3 +182,29 @@ def remove_group_chat_file(group_id: int, file_id: str):
 def clear_group_chat_files(group_id: int):
     """Clear all file metadata for a group."""
     r.delete(f"group_chat_files:{group_id}")
+
+
+# ── Chat data source tracking ──
+
+def add_chat_source(agent_id: int, url: str, title: str = "", source_type: str = "browse"):
+    """Add a data source to the temporary sources cache for the current chat turn.
+
+    Uses Redis list at key `chat_sources_temp:{agent_id}` with 5-minute TTL.
+    """
+    key = f"chat_sources_temp:{agent_id}"
+    source = {"url": url, "title": title, "type": source_type}
+    r.rpush(key, json.dumps(source, ensure_ascii=False))
+    r.expire(key, 300)
+
+
+def get_chat_sources(agent_id: int) -> List[Dict[str, Any]]:
+    """Get all accumulated sources for the current chat turn and clear the cache.
+
+    Returns list of {url, title, type} dicts.
+    After reading, delete the temp key.
+    """
+    key = f"chat_sources_temp:{agent_id}"
+    items = r.lrange(key, 0, -1)
+    sources = [json.loads(item) for item in items]
+    r.delete(key)
+    return sources

@@ -6,7 +6,7 @@ from app.database import get_db
 from app import models
 from app.redis_client import (
     get_chat_history, append_chat_message, append_group_chat_message,
-    get_chat_files,
+    get_chat_files, get_chat_sources,
 )
 from app.file_utils import extract_text
 from app.context_manager import build_messages_with_budget, get_model_context_window
@@ -141,6 +141,7 @@ async def chat_with_agent(agent_id: int, payload: ChatPayload, db: Session = Dep
         """
         full_response = ""
         reasoning_buffer = ""
+        sources = []
 
         def _extract_message(event):
             """Extract AIMessage from v1 tuple or v2 dict format."""
@@ -256,6 +257,12 @@ async def chat_with_agent(agent_id: int, payload: ChatPayload, db: Session = Dep
                                         yield f"data: {json.dumps({'browser_status': {'state': 'navigating', 'url': url}}, ensure_ascii=False)}\n\n"
                                     elif tc["name"] == "browser_get_text":
                                         yield f"data: {json.dumps({'browser_status': {'state': 'reading'}}, ensure_ascii=False)}\n\n"
+
+                # After streaming finishes, send accumulated sources
+                sources = get_chat_sources(agent_id)
+                if sources:
+                    logger.info(f"[CHAT SOURCES] agent_id={agent_id} count={len(sources)}")
+                    yield f"data: {json.dumps({'sources': sources}, ensure_ascii=False)}\n\n"
             else:
                 # No tools: simple LLM streaming (token-level)
                 logger.info("[CHAT STREAM] No tools, direct LLM streaming")
@@ -278,9 +285,9 @@ async def chat_with_agent(agent_id: int, payload: ChatPayload, db: Session = Dep
 
             # Save final response
             if full_response:
-                append_chat_message(agent_id, "assistant", full_response)
+                append_chat_message(agent_id, "assistant", full_response, sources=sources or None)
                 if group_id:
-                    append_group_chat_message(group_id, "assistant", agent_id, agent.name, full_response)
+                    append_group_chat_message(group_id, "assistant", agent_id, agent.name, full_response, sources=sources or None)
                 logger.info(f"[CHAT SAVED] agent_id={agent_id} response_len={len(full_response)} reasoning_len={len(reasoning_buffer)}")
 
         except Exception as e:

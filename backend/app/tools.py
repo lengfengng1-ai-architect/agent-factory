@@ -199,30 +199,8 @@ def get_workspace_path(agent_id: int) -> str:
     return path
 
 
-@tool
-def web_search(query: str) -> str:
-    """Search the web for information using DuckDuckGo.
-
-    IMPORTANT: This tool ONLY returns search result titles, snippets,
-    and URLs. It does NOT read the actual web page content.
-
-    For real-time data (weather, news, sports scores, current events,
-    prices, statistics, etc.), you MUST use browser_navigate + browser_get_text
-    after web_search to read the full page content. Search snippets alone
-    are often outdated or incomplete for real-time information.
-
-    Best for: finding relevant URLs to explore, discovering multiple
-    sources for the same topic.
-
-    Workflow for real-time queries:
-    1. web_search(query) → get URLs
-    2. browser_navigate(best_url) → load page
-    3. browser_get_text() → read full content
-    4. If data is missing or incomplete, try the NEXT URL from search results
-
-    Args:
-        query: The search query string.
-    """
+def _web_search_raw(query: str) -> str:
+    """Raw web search implementation (not a tool — used by _create_search_tool)."""
     try:
         logger.info(f"[WEB SEARCH] query={query}")
         with DDGS() as ddgs:
@@ -237,10 +215,61 @@ def web_search(query: str) -> str:
                 ]
             )
             logger.info(f"[WEB SEARCH OK] query={query} results={len(results)}")
-            return result_text
+            return result_text, results
     except Exception as e:
         logger.exception(f"[WEB SEARCH ERROR] query={query} error={e}")
-        return f"Search error: {e}"
+        return f"Search error: {e}", []
+
+
+def _create_search_tool(agent_id: int):
+    from app.redis_client import add_chat_source
+
+    @tool
+    def web_search(query: str) -> str:
+        """Search the web for information using DuckDuckGo.
+
+        IMPORTANT: This tool ONLY returns search result titles, snippets,
+        and URLs. It does NOT read the actual web page content.
+
+        For real-time data (weather, news, sports scores, current events,
+        prices, statistics, etc.), you MUST use browser_navigate + browser_get_text
+        after web_search to read the full page content. Search snippets alone
+        are often outdated or incomplete for real-time information.
+
+        Best for: finding relevant URLs to explore, discovering multiple
+        sources for the same topic.
+
+        Workflow for real-time queries:
+        1. web_search(query) → get URLs
+        2. browser_navigate(best_url) → load page
+        3. browser_get_text() → read full content
+        4. If data is missing or incomplete, try the NEXT URL from search results
+
+        Args:
+            query: The search query string.
+        """
+        try:
+            logger.info(f"[WEB SEARCH] agent_id={agent_id} query={query}")
+            result_text, results = _web_search_raw(query)
+            if not results:
+                logger.info(f"[WEB SEARCH EMPTY] agent_id={agent_id} query={query}")
+                return result_text
+            # Record each search result URL as a source
+            for r in results:
+                href = r.get("href", "")
+                title = r.get("title", "")
+                if href:
+                    try:
+                        add_chat_source(agent_id, href, title, "search")
+                    except Exception:
+                        pass  # Don't fail search if source tracking fails
+            logger.info(f"[WEB SEARCH OK] agent_id={agent_id} query={query} results={len(results)}")
+            return result_text
+        except Exception as e:
+            logger.exception(f"[WEB SEARCH ERROR] agent_id={agent_id} query={query} error={e}")
+            return f"Search error: {e}"
+
+    return web_search
 
 
 def _resolve_path(file_path: str, root_dir: str) -> str:
@@ -422,6 +451,14 @@ def _create_browser_tools(agent_id: int) -> List[BaseTool]:
             title = page.title()
             _update_browser_state(agent_id, url=page.url, title=title)
             _screenshot_thread_agent_page(agent_id, page)
+
+            # Record as a browsed source
+            try:
+                from app.redis_client import add_chat_source
+                add_chat_source(agent_id, url, title, "browse")
+            except Exception:
+                pass
+
             logger.info(f"[BROWSER NAVIGATE OK] agent_id={agent_id} title={title}")
             return f"Navigated to: {url}\nPage title: {title}"
         except Exception as e:
@@ -709,7 +746,7 @@ def get_agent_tools(
     cfg = agent.config or {}
 
     if cfg.get("enable_browsing"):
-        tools.append(web_search)
+        tools.append(_create_search_tool(agent.id))
         tools.extend(_create_browser_tools(agent.id))
 
     if cfg.get("enable_file_access"):

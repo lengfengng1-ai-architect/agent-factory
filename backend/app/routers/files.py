@@ -190,14 +190,19 @@ def list_task_artifacts(task_id: int):
         return {"artifacts": []}
     
     artifacts = []
-    for fname in sorted(os.listdir(task_dir)):
-        fpath = os.path.join(task_dir, fname)
-        if os.path.isfile(fpath):
-            artifacts.append({
-                "name": fname,
-                "path": os.path.abspath(fpath),
-                "size": os.path.getsize(fpath),
-            })
+    try:
+        for fname in sorted(os.listdir(task_dir)):
+            fpath = os.path.join(task_dir, fname)
+            if os.path.isfile(fpath):
+                artifacts.append({
+                    "name": fname,
+                    "path": os.path.abspath(fpath),
+                    "size": os.path.getsize(fpath),
+                })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to list artifacts: {str(e)}")
     return {"artifacts": artifacts}
 
 

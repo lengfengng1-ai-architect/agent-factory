@@ -22,6 +22,8 @@ wheels/
 backend/venv/
 backend/workspace/
 backend/app/workspace/
+# Centralized data directory (db, workspace, logs)
+backend/data/
 
 # Node
 node_modules/

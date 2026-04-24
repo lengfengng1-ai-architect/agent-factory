@@ -206,8 +206,8 @@ def web_search(query: str) -> str:
     IMPORTANT: This tool ONLY returns search result titles, snippets,
     and URLs. It does NOT read the actual web page content.
 
-    For real-time data (stock prices, weather, news, sports scores,
-    current events, etc.), you MUST use browser_navigate + browser_get_text
+    For real-time data (weather, news, sports scores, current events,
+    prices, statistics, etc.), you MUST use browser_navigate + browser_get_text
     after web_search to read the full page content. Search snippets alone
     are often outdated or incomplete for real-time information.
 
@@ -391,10 +391,10 @@ def _create_browser_tools(agent_id: int) -> List[BaseTool]:
 
         Use this tool to READ THE FULL CONTENT of web pages. This is
         ESSENTIAL for real-time data that search snippets cannot provide:
-        - Stock prices, market data, financial information
         - Weather forecasts, current conditions
         - News articles, current events
         - Sports scores, live updates
+        - Prices, statistics, product information
         - Any data that changes frequently
 
         After navigation, the page waits 1 second for dynamic content
@@ -496,11 +496,11 @@ def _create_browser_tools(agent_id: int) -> List[BaseTool]:
         This returns the FULL TEXT of the page (up to 12,000 chars).
 
         IMPORTANT: If the extracted text does NOT contain the information
-        you need (e.g., stock price, weather data), do NOT give up.
-        Navigate to another URL from the search results and try again.
+        you need, do NOT give up. Navigate to another URL from the search
+        results and try again.
 
-        Best for: extracting stock prices, market data, news articles,
-        weather forecasts, or any real-time information from web pages.
+        Best for: extracting text content, structured data, news articles,
+        documentation, product information, or any information from web pages.
 
         Returns the main readable text, excluding scripts and styles.
         """
@@ -516,47 +516,14 @@ def _create_browser_tools(agent_id: int) -> List[BaseTool]:
 
             # Extract text using multiple strategies for dynamic sites
             result = page.evaluate(r"""() => {
-                let financialData = [];
-                const seen = new Set();
-
-                // Walk ALL elements looking for numeric values near financial keywords
-                const keywords = ['price', 'Price', 'quote', 'Quote', 'stock', 'Stock',
-                    '行情', '股价', '最新', '涨跌', '涨幅', '今开', '最高', '最低',
-                    '成交量', '成交额', '市值', '市盈率', 'nums', 'zd', 'zxj'];
-
-                document.querySelectorAll('*').forEach(el => {
-                    const cls = el.className || '';
-                    const txt = el.innerText?.trim();
-                    if (!txt || txt.length > 80) return;
-                    const hasFinClass = keywords.some(k => cls.includes(k));
-                    const parentCls = el.parentElement?.className || '';
-                    const parentHasFin = keywords.some(k => parentCls.includes(k));
-                    const hasNumber = /\d/.test(txt);
-                    if ((hasFinClass || parentHasFin) && hasNumber && !seen.has(txt)) {
-                        seen.add(txt);
-                        const label = el.previousElementSibling?.innerText?.trim()?.slice(0, 20) || '';
-                        financialData.push((label ? label + ': ' : '') + txt);
-                    }
-                });
-
-                // Specific selectors for Chinese financial sites
-                const specificSelectors = [
-                    '.nums', '.price_up', '.price_down', '.price_draw',
-                    '.stock-price', '.current-price', '.latest-price',
-                    '[class*="zxj"]', '[class*="zdz"]', '[class*="zdf"]',
-                ];
-                specificSelectors.forEach(sel => {
-                    document.querySelectorAll(sel).forEach(el => {
-                        const txt = el.innerText?.trim();
-                        if (txt && txt.length < 50 && !seen.has(txt)) {
-                            seen.add(txt);
-                            financialData.push('[' + sel + '] ' + txt);
-                        }
-                    });
-                });
-
-                // Page title often contains stock summary
+                // Page title
                 const pageTitle = document.title;
+
+                // Meta tags
+                const metaDesc = document.querySelector('meta[name="description"]')?.content || '';
+                const metaKeywords = document.querySelector('meta[name="keywords"]')?.content || '';
+                const ogTitle = document.querySelector('meta[property="og:title"]')?.content || '';
+                const ogDesc = document.querySelector('meta[property="og:description"]')?.content || '';
 
                 // Extract from window.__INITIAL_STATE__
                 let initialState = null;
@@ -566,14 +533,42 @@ def _create_browser_tools(agent_id: int) -> List[BaseTool]:
                     }
                 } catch(e) {}
 
-                // JSON data in script tags
+                // Generic JSON data in script tags
                 let scriptData = [];
+                const genericKeys = ['data', 'config', 'props', 'state', 'initialData', 'payload', 'content', 'result', 'items', 'list', 'details', 'pageData', 'appData'];
+                const keyPattern = genericKeys.join('|');
                 document.querySelectorAll('script').forEach(s => {
                     const txt = s.innerText || s.textContent || '';
-                    if (txt.includes('quote') || txt.includes('price') || txt.includes('stock') ||
-                        txt.includes('行情') || txt.includes('symbol')) {
-                        const matches = txt.match(/\{[^}]*"(price|close|open|high|low|volume|quote|symbol|name)"[^}]*\}/gi);
-                        if (matches) scriptData.push(...matches.slice(0, 5));
+                    if (!txt.includes('{') && !txt.includes('[')) return;
+                    const matches = txt.match(new RegExp('\\{[^{}]*"(' + keyPattern + ')"[^{}]*\\}', 'gi'));
+                    if (matches) scriptData.push(...matches.slice(0, 5));
+                });
+
+                // Table data extraction
+                let tableData = [];
+                document.querySelectorAll('table').forEach(table => {
+                    const rows = [];
+                    table.querySelectorAll('tr').forEach(tr => {
+                        const cells = [];
+                        tr.querySelectorAll('td, th').forEach(cell => {
+                            const text = cell.innerText?.trim() || '';
+                            if (text) cells.push(text);
+                        });
+                        if (cells.length) rows.push(cells.join(' | '));
+                    });
+                    if (rows.length) tableData.push(rows.join('\n'));
+                });
+
+                // Largest content block by word count
+                let largestBlock = '';
+                let maxWords = 0;
+                const candidates = document.querySelectorAll('p, div, article, section, main');
+                candidates.forEach(el => {
+                    const text = el.innerText?.trim() || '';
+                    const wordCount = text.split(/\s+/).length;
+                    if (wordCount > maxWords && text.length > largestBlock.length) {
+                        maxWords = wordCount;
+                        largestBlock = text;
                     }
                 });
 
@@ -585,7 +580,12 @@ def _create_browser_tools(agent_id: int) -> List[BaseTool]:
                 return {
                     pageTitle: pageTitle,
                     mainText: mainText.slice(0, 8000),
-                    financialSnippets: financialData.slice(0, 30),
+                    metaDescription: metaDesc,
+                    metaKeywords: metaKeywords,
+                    ogTitle: ogTitle,
+                    ogDescription: ogDesc,
+                    tables: tableData.slice(0, 5),
+                    largestContentBlock: largestBlock.slice(0, 3000),
                     initialState: initialState,
                     scriptSnippets: scriptData.slice(0, 10),
                 };
@@ -599,11 +599,45 @@ def _create_browser_tools(agent_id: int) -> List[BaseTool]:
                 parts.append(f"Page Title: {title}")
                 parts.append("")
 
-            # Add financial snippets if found
-            fin = result.get("financialSnippets", [])
-            if fin:
-                parts.append("=== DOM Financial Elements ===")
-                parts.extend(fin)
+            # Add meta description if found
+            metaDesc = result.get("metaDescription", "")
+            if metaDesc:
+                parts.append("=== Meta Description ===")
+                parts.append(metaDesc)
+                parts.append("")
+
+            # Add meta keywords if found
+            metaKeywords = result.get("metaKeywords", "")
+            if metaKeywords:
+                parts.append("=== Meta Keywords ===")
+                parts.append(metaKeywords)
+                parts.append("")
+
+            # Add Open Graph data if found
+            ogTitle = result.get("ogTitle", "")
+            ogDesc = result.get("ogDescription", "")
+            if ogTitle or ogDesc:
+                parts.append("=== Open Graph Data ===")
+                if ogTitle:
+                    parts.append(f"og:title: {ogTitle}")
+                if ogDesc:
+                    parts.append(f"og:description: {ogDesc}")
+                parts.append("")
+
+            # Add table data if found
+            tables = result.get("tables", [])
+            if tables:
+                parts.append("=== Tables ===")
+                for i, t in enumerate(tables):
+                    parts.append(f"--- Table {i+1} ---")
+                    parts.append(t)
+                parts.append("")
+
+            # Add largest content block if found
+            largestBlock = result.get("largestContentBlock", "")
+            if largestBlock:
+                parts.append("=== Largest Content Block ===")
+                parts.append(largestBlock)
                 parts.append("")
 
             # Add initial state if found
@@ -632,7 +666,7 @@ def _create_browser_tools(agent_id: int) -> List[BaseTool]:
                 return "(page has no visible text)"
             if len(full) > 12000:
                 full = full[:12000] + "\n... (truncated)"
-            logger.info(f"[BROWSER GET_TEXT OK] agent_id={agent_id} len={len(full)} financial={len(fin)} scripts={len(scripts)}")
+            logger.info(f"[BROWSER GET_TEXT OK] agent_id={agent_id} len={len(full)} tables={len(tables)} scripts={len(scripts)} blocks={1 if largestBlock else 0}")
             return full
         except Exception as e:
             logger.exception(f"[BROWSER GET_TEXT ERROR] agent_id={agent_id} error={e}")
@@ -699,7 +733,7 @@ _BROWSER_TOOL_GUIDE = (
     "Do NOT say you cannot access real-time data. You CAN access ANY public web page.\n\n"
     "RULE 1 — NEVER ask permission: When user asks for data, DIRECTLY call tools. "
     "Do NOT preface with 'I cannot' or 'I need authorization'. Just DO IT.\n\n"
-    "RULE 2 — Real-time data workflow (stocks, weather, news, etc.):\n"
+    "RULE 2 — Real-time data workflow (weather, news, prices, statistics, etc.):\n"
     "   Step 1: web_search(query) → get URLs\n"
     "   Step 2: browser_navigate(url) → load page\n"
     "   Step 3: browser_get_text() → extract data\n"
@@ -707,15 +741,15 @@ _BROWSER_TOOL_GUIDE = (
     "   Step 5: Keep trying DIFFERENT URLs until data is found\n\n"
     "RULE 3 — web_search ONLY gives summaries. For actual data you MUST use "
     "browser_navigate + browser_get_text. Summaries are NOT sufficient.\n\n"
-    "RULE 4 — Financial sites (东方财富, 同花顺, investing.com, etc.) serve data "
-    "via JavaScript. The browser_get_text tool handles this by waiting for JS "
-    "to execute and extracting from the rendered DOM. It also attempts to read "
-    "data from page scripts (window.__INITIAL_STATE__, etc.).\n\n"
-    "RULE 5 — If you see '-', 'N/A', or empty values in financial data, it means "
+    "RULE 4 — Many modern websites serve data via JavaScript. The browser_get_text "
+    "tool handles this by waiting for JS to execute and extracting from the rendered "
+    "DOM. It also attempts to read structured data from page scripts "
+    "(window.__INITIAL_STATE__, etc.), meta tags, and HTML tables.\n\n"
+    "RULE 5 — If you see '-', 'N/A', or empty values, it means "
     "the page uses heavy JS rendering. Try:\n"
     "   a) Wait — the tool already waits for JS, but some sites need more time\n"
     "   b) Try another URL from search results\n"
-    "   c) Look for data in the page text even if formatted strangely\n\n"
+    "   c) Look for data in tables, meta tags, or the page text even if formatted strangely\n\n"
     "RULE 6 — Do NOT apologize for uncertainty. Do NOT disclaim limitations. "
     "Report what you found, even if incomplete. If you found partial data, report it."
 )

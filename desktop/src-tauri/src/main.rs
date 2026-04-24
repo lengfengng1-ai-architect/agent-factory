@@ -32,6 +32,36 @@ fn wait_for_redis(port: u16, timeout_secs: u64) -> bool {
     false
 }
 
+/// Kill any process occupying the given port (used to clean up stale embedded Redis).
+fn kill_process_on_port(port: u16) {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = Command::new("sh")
+            .arg("-c")
+            .arg(format!("lsof -ti:{} | xargs kill -9 2>/dev/null || true", port))
+            .status();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = Command::new("sh")
+            .arg("-c")
+            .arg(format!("fuser -k {}/tcp 2>/dev/null || true", port))
+            .status();
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = Command::new("cmd")
+            .arg("/C")
+            .arg(format!(
+                "for /f \"tokens=5\" %a in ('netstat -ano ^| findstr :{}') do taskkill /F /PID %a 2>nul",
+                port
+            ))
+            .status();
+    }
+    // Give the OS a moment to release the port
+    std::thread::sleep(Duration::from_millis(500));
+}
+
 fn wait_for_backend(port: u16, timeout_secs: u64) -> bool {
     let start = std::time::Instant::now();
     while start.elapsed().as_secs() < timeout_secs {
@@ -98,6 +128,9 @@ fn main() {
         .map(|d| d.join("Agent Factory"))
         .unwrap_or_else(|| std::env::temp_dir().join("agent-factory"));
     std::fs::create_dir_all(&data_dir).expect("Failed to create data directory");
+
+    // Kill any stale Redis process from a previous run before starting a new one
+    kill_process_on_port(REDIS_PORT);
 
     let redis_process = start_redis(&data_dir);
     println!("Waiting for Redis to be ready...");

@@ -2,6 +2,10 @@ import os
 import sys
 from pathlib import Path
 from fastapi import FastAPI
+from app.logger import get_logger, LOG_FILE
+
+logger = get_logger(__name__)
+logger.info(f"Agent Factory starting up. Log file: {LOG_FILE}")
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.responses import FileResponse

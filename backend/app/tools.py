@@ -10,6 +10,9 @@ from langchain.messages import ToolMessage, SystemMessage
 from ddgs import DDGS
 from app import models
 from app.database import workspace_dir
+from app.logger import get_logger, truncate_for_log
+
+logger = get_logger(__name__)
 
 # Playwright browser state — thread-local for LangChain ToolNode multi-thread safety
 import threading
@@ -221,17 +224,22 @@ def web_search(query: str) -> str:
         query: The search query string.
     """
     try:
+        logger.info(f"[WEB SEARCH] query={query}")
         with DDGS() as ddgs:
             results = list(ddgs.text(query, max_results=5))
             if not results:
+                logger.info(f"[WEB SEARCH EMPTY] query={query}")
                 return "No results found."
-            return "\n\n".join(
+            result_text = "\n\n".join(
                 [
                     f"Title: {r['title']}\nSnippet: {r['body']}\nURL: {r.get('href', 'N/A')}"
                     for r in results
                 ]
             )
+            logger.info(f"[WEB SEARCH OK] query={query} results={len(results)}")
+            return result_text
     except Exception as e:
+        logger.exception(f"[WEB SEARCH ERROR] query={query} error={e}")
         return f"Search error: {e}"
 
 
@@ -406,6 +414,7 @@ def _create_browser_tools(agent_id: int) -> List[BaseTool]:
             url: The URL to navigate to (must include http:// or https://).
         """
         try:
+            logger.info(f"[BROWSER NAVIGATE] agent_id={agent_id} url={url}")
             page = _get_thread_agent_page(agent_id)
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
             # Wait for dynamic content (JavaScript-rendered data) to load
@@ -413,8 +422,10 @@ def _create_browser_tools(agent_id: int) -> List[BaseTool]:
             title = page.title()
             _update_browser_state(agent_id, url=page.url, title=title)
             _screenshot_thread_agent_page(agent_id, page)
+            logger.info(f"[BROWSER NAVIGATE OK] agent_id={agent_id} title={title}")
             return f"Navigated to: {url}\nPage title: {title}"
         except Exception as e:
+            logger.exception(f"[BROWSER NAVIGATE ERROR] agent_id={agent_id} url={url} error={e}")
             return f"Browser navigation error: {e}"
 
     @tool
@@ -435,6 +446,7 @@ def _create_browser_tools(agent_id: int) -> List[BaseTool]:
                              or visible text content of the element to click.
         """
         try:
+            logger.info(f"[BROWSER CLICK] agent_id={agent_id} selector={selector_or_text}")
             page = _get_thread_agent_page(agent_id)
             try:
                 page.click(selector_or_text, timeout=5000)
@@ -444,8 +456,10 @@ def _create_browser_tools(agent_id: int) -> List[BaseTool]:
             title = page.title()
             _update_browser_state(agent_id, url=page.url, title=title)
             _screenshot_thread_agent_page(agent_id, page)
+            logger.info(f"[BROWSER CLICK OK] agent_id={agent_id} title={title}")
             return f"Clicked '{selector_or_text}'. Current page: {title}"
         except Exception as e:
+            logger.exception(f"[BROWSER CLICK ERROR] agent_id={agent_id} selector={selector_or_text} error={e}")
             return f"Browser click error: {e}"
 
     @tool
@@ -464,11 +478,14 @@ def _create_browser_tools(agent_id: int) -> List[BaseTool]:
             text: Text to type into the field.
         """
         try:
+            logger.info(f"[BROWSER TYPE] agent_id={agent_id} selector={selector} text_len={len(text)}")
             page = _get_thread_agent_page(agent_id)
             page.fill(selector, text, timeout=10000)
             _screenshot_thread_agent_page(agent_id, page)
+            logger.info(f"[BROWSER TYPE OK] agent_id={agent_id}")
             return f"Typed '{text}' into '{selector}'"
         except Exception as e:
+            logger.exception(f"[BROWSER TYPE ERROR] agent_id={agent_id} selector={selector} error={e}")
             return f"Browser type error: {e}"
 
     @tool
@@ -488,6 +505,7 @@ def _create_browser_tools(agent_id: int) -> List[BaseTool]:
         Returns the main readable text, excluding scripts and styles.
         """
         try:
+            logger.info(f"[BROWSER GET_TEXT] agent_id={agent_id}")
             page = _get_thread_agent_page(agent_id)
             # Wait for dynamic content and network requests to settle
             try:
@@ -610,11 +628,14 @@ def _create_browser_tools(agent_id: int) -> List[BaseTool]:
 
             full = "\n".join(parts).strip()
             if not full:
+                logger.info(f"[BROWSER GET_TEXT EMPTY] agent_id={agent_id}")
                 return "(page has no visible text)"
             if len(full) > 12000:
                 full = full[:12000] + "\n... (truncated)"
+            logger.info(f"[BROWSER GET_TEXT OK] agent_id={agent_id} len={len(full)} financial={len(fin)} scripts={len(scripts)}")
             return full
         except Exception as e:
+            logger.exception(f"[BROWSER GET_TEXT ERROR] agent_id={agent_id} error={e}")
             return f"Browser get_text error: {e}"
 
     @tool
@@ -628,10 +649,13 @@ def _create_browser_tools(agent_id: int) -> List[BaseTool]:
         Returns the file path of the saved screenshot.
         """
         try:
+            logger.info(f"[BROWSER SCREENSHOT] agent_id={agent_id}")
             page = _get_thread_agent_page(agent_id)
             path = _screenshot_thread_agent_page(agent_id, page)
+            logger.info(f"[BROWSER SCREENSHOT OK] agent_id={agent_id} path={path}")
             return f"Screenshot saved: {path}"
         except Exception as e:
+            logger.exception(f"[BROWSER SCREENSHOT ERROR] agent_id={agent_id} error={e}")
             return f"Browser screenshot error: {e}"
 
     return [
@@ -664,6 +688,7 @@ def get_agent_tools(
         os.makedirs(root, exist_ok=True)
         tools.extend(_create_file_tools(root))
 
+    logger.info(f"[GET AGENT TOOLS] agent_id={agent.id} tools={[t.name for t in tools]}")
     return tools
 
 

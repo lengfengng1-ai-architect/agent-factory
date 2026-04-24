@@ -94,12 +94,12 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: aarch64-apple-darwin
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
+          key: aarch64-apple-darwin
           workspaces: desktop/src-tauri
 
       # ============================================
@@ -156,13 +156,13 @@ jobs:
           cp backend/dist/agent-factory-backend desktop/src-tauri/binaries/agent-factory-backend
           chmod +x desktop/src-tauri/binaries/agent-factory-backend
           # Tauri externalBin requires architecture-specific filenames
-          cp backend/dist/agent-factory-backend "desktop/src-tauri/binaries/agent-factory-backend-${{ matrix.target }}"
-          chmod +x "desktop/src-tauri/binaries/agent-factory-backend-${{ matrix.target }}"
+          cp backend/dist/agent-factory-backend "desktop/src-tauri/binaries/agent-factory-backend-aarch64-apple-darwin"
+          chmod +x "desktop/src-tauri/binaries/agent-factory-backend-aarch64-apple-darwin"
           brew install --quiet redis
           cp "$(brew --prefix redis)/bin/redis-server" desktop/src-tauri/binaries/redis-server
           chmod +x desktop/src-tauri/binaries/redis-server
-          cp "$(brew --prefix redis)/bin/redis-server" "desktop/src-tauri/binaries/redis-server-${{ matrix.target }}"
-          chmod +x "desktop/src-tauri/binaries/redis-server-${{ matrix.target }}"
+          cp "$(brew --prefix redis)/bin/redis-server" "desktop/src-tauri/binaries/redis-server-aarch64-apple-darwin"
+          chmod +x "desktop/src-tauri/binaries/redis-server-aarch64-apple-darwin"
 
       # ============================================
       # 9. Build Tauri desktop app

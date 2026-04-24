@@ -140,6 +140,7 @@ def build_messages_with_budget(
     user_message: str,
     file_contents: List[Dict[str, str]],
     context_window: int,
+    system_prompt: str = None,
 ) -> List[SystemMessage | HumanMessage | AIMessage]:
     """Build the final message list for LLM invocation within context budget.
 
@@ -149,11 +150,13 @@ def build_messages_with_budget(
         user_message: The current user message.
         file_contents: List of dicts with file name and content/summary.
         context_window: The model's max context window in tokens.
+        system_prompt: Optional override for the system prompt. If not provided,
+            uses agent.system_prompt.
 
     Returns:
         List of LangChain messages ready for LLM.
     """
-    system_prompt = agent.system_prompt or "You are a helpful assistant."
+    system_prompt = system_prompt or agent.system_prompt or "You are a helpful assistant."
 
     # 1. Calculate budgets
     total_budget = max(0, context_window - RESERVE_TOKENS)

@@ -107,15 +107,6 @@ async def chat_with_agent(agent_id: int, payload: ChatPayload, db: Session = Dep
                 "is_summary": True,
             })
 
-    context_window = get_model_context_window(db, agent)
-    messages = build_messages_with_budget(
-        agent=agent,
-        history=history,
-        user_message=user_message,
-        file_contents=file_contents,
-        context_window=context_window,
-    )
-
     # Determine file root directory
     override_root = None
     if group_id:
@@ -126,6 +117,16 @@ async def chat_with_agent(agent_id: int, payload: ChatPayload, db: Session = Dep
     tools = get_agent_tools(agent, override_root_dir=override_root)
     if _has_browser_tools(tools):
         system_prompt += _BROWSER_TOOL_GUIDE
+
+    context_window = get_model_context_window(db, agent)
+    messages = build_messages_with_budget(
+        agent=agent,
+        history=history,
+        user_message=user_message,
+        file_contents=file_contents,
+        context_window=context_window,
+        system_prompt=system_prompt,
+    )
 
     async def stream_response():
         """Stream agent response directly using agent.astream().

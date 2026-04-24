@@ -2,6 +2,10 @@
 
 Uses LangChain v1 structured output (with_structured_output) for reliable
 workflow breakdown instead of manual JSON parsing.
+
+LangGraph optimization:
+- Step execution uses StateGraph + Send API for parallel dispatch of
+  independent workflow steps (previously sequential loop).
 """
 
 import os
@@ -11,16 +15,84 @@ from typing import Optional, List
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from langchain.messages import HumanMessage, SystemMessage
+from typing_extensions import TypedDict
+from langgraph.graph import StateGraph
+from langgraph.types import Send
 
 from app import models
 from app.database import SessionLocal
 from app.llm_factory import create_llm
 from app.common import get_agent_provider
 from app.tools import get_agent_tools, run_llm_with_tools
+from app.logger import get_logger
+
+logger = get_logger(__name__)
 
 MAX_WORKFLOW_STEPS = 50
 DEFAULT_TIMEOUT_MINUTES = 30
 DEFAULT_RETRY_COUNT = 3
+
+
+# ── LangGraph Parallel Step Execution ──
+
+class _ParallelStepState(TypedDict):
+    """State for the parallel step-execution subgraph."""
+
+    task_id: int
+    step_id: int
+
+
+async def _parallel_execute_step(state: _ParallelStepState):
+    """Execute a single workflow step inside a LangGraph node.
+
+    Each node gets its own DB session so parallel steps are isolated.
+    """
+    task_id = state["task_id"]
+    step_id = state["step_id"]
+    db = SessionLocal()
+    try:
+        step = db.query(models.WorkflowStep).filter(
+            models.WorkflowStep.id == step_id
+        ).first()
+        task = db.query(models.Task).filter(
+            models.Task.id == task_id
+        ).first()
+        if step and task:
+            logger.info(f"[WF PARALLEL] Executing step {step_id} ({step.name}) for task {task_id}")
+            await execute_step(step, task, db)
+            logger.info(f"[WF PARALLEL] Step {step_id} finished with status={step.status}")
+        else:
+            logger.warning(f"[WF PARALLEL] Step {step_id} or task {task_id} not found")
+    except Exception as e:
+        logger.exception(f"[WF PARALLEL] Step {step_id} error: {e}")
+    finally:
+        db.close()
+    return state
+
+
+class _DispatchState(TypedDict):
+    """Entry state for the parallel dispatcher."""
+
+    task_id: int
+    step_ids: list[int]
+
+
+def _dispatch_steps(state: _DispatchState):
+    """Dynamic branch: send each step_id to its own execute node."""
+    sends = [
+        Send("execute", {"task_id": state["task_id"], "step_id": sid})
+        for sid in state["step_ids"]
+    ]
+    logger.info(f"[WF DISPATCH] task={state['task_id']} steps={state['step_ids']} parallel={len(sends)}")
+    return sends
+
+
+# Build the parallel-execution subgraph once
+_parallel_graph = StateGraph(_DispatchState)
+_parallel_graph.add_node("execute", _parallel_execute_step)
+_parallel_graph.set_conditional_entry_point(_dispatch_steps)
+_parallel_graph.add_edge("execute", "__end__")
+_parallel_compiled = _parallel_graph.compile()
 
 
 # ── Structured Output Schema ──
@@ -344,23 +416,28 @@ async def execute_step(step: models.WorkflowStep, task: models.Task, db: Session
 
 
 async def execute_workflow(task_id: int):
-    """Execute a workflow task: run executable steps until checkpoint or completion."""
+    """Execute a workflow task: run executable steps until checkpoint or completion.
+
+    Optimized with LangGraph: independent steps are dispatched in parallel
+    via Send API instead of the previous sequential loop.
+    """
     db = SessionLocal()
     try:
         task = db.query(models.Task).filter(models.Task.id == task_id).first()
         if not task or not task.workflow_plan:
             return
-        
+
         task.workflow_status = "running"
         db.commit()
-        
+        logger.info(f"[WF START] task_id={task_id} steps={len(task.workflow_plan.get('steps', []))}")
+
         while True:
             # Re-read task config each iteration so runtime changes take effect
             db.refresh(task)
             cfg = task.workflow_config or {}
             disable_checkpoints = cfg.get("disable_checkpoints", True)
             max_retries = cfg.get("retry_count", DEFAULT_RETRY_COUNT)
-            
+
             executable = _get_next_executable_steps(task_id, db)
             if not executable:
                 # No more pending steps — check if all done
@@ -374,54 +451,69 @@ async def execute_workflow(task_id: int):
                     # Aggregate final result from all steps
                     _aggregate_workflow_result(task, all_steps, db)
                     db.commit()
-                break
-            
-            # Execute the first executable step
-            step = executable[0]
-            await execute_step(step, task, db)
-            
-            # Refresh step from DB
-            db.refresh(step)
-            
-            if step.status == "failed":
-                if step.retry_count < max_retries:
-                    step.retry_count += 1
-                    step.status = "pending"
-                    db.commit()
-                    continue
+                    logger.info(f"[WF COMPLETE] task_id={task_id}")
                 else:
-                    # Update progress before failing
+                    logger.info(f"[WF STALLED] task_id={task_id} — no executable steps but not all done")
+                break
+
+            # ── LangGraph parallel execution ──
+            # All independent steps run concurrently via Send API.
+            step_ids = [s.id for s in executable]
+            logger.info(f"[WF BATCH] task_id={task_id} executing {len(step_ids)} steps in parallel: {step_ids}")
+            await _parallel_compiled.ainvoke({"task_id": task_id, "step_ids": step_ids})
+
+            # ── Post-parallel: retry / checkpoint / progress ──
+            for step in executable:
+                db.refresh(step)
+
+                # Retry failed steps
+                if step.status == "failed":
+                    if step.retry_count < max_retries:
+                        step.retry_count += 1
+                        step.status = "pending"
+                        logger.info(f"[WF RETRY] task_id={task_id} step={step.id} retry={step.retry_count}/{max_retries}")
+                    else:
+                        logger.warning(f"[WF FAIL] task_id={task_id} step={step.id} max retries exceeded")
+
+                # Checkpoint: pause for human feedback
+                if step.status == "completed" and step.checkpoint and not disable_checkpoints:
+                    step.status = "waiting_feedback"
                     all_steps = db.query(models.WorkflowStep).filter(
                         models.WorkflowStep.task_id == task_id
                     ).all()
                     completed = sum(1 for s in all_steps if s.status in ("completed", "skipped"))
                     task.progress = int(completed / len(all_steps) * 100) if all_steps else 0
-                    task.workflow_status = "failed"
-                    task.status = "completed"
+                    task.workflow_status = "waiting_feedback"
                     db.commit()
-                    break
-            
-            # If checkpoint, pause for human feedback (unless globally disabled)
-            if step.checkpoint and not disable_checkpoints:
-                step.status = "waiting_feedback"
-                # Update progress before pausing
+                    logger.info(f"[WF CHECKPOINT] task_id={task_id} step={step.id} waiting_feedback")
+                    return  # Exit the workflow; scheduler will resume later
+
+            # Check if any step hit max retries → fail the whole workflow
+            any_fatal = any(
+                s.status == "failed" and s.retry_count >= max_retries
+                for s in executable
+            )
+            if any_fatal:
                 all_steps = db.query(models.WorkflowStep).filter(
                     models.WorkflowStep.task_id == task_id
                 ).all()
                 completed = sum(1 for s in all_steps if s.status in ("completed", "skipped"))
                 task.progress = int(completed / len(all_steps) * 100) if all_steps else 0
-                task.workflow_status = "waiting_feedback"
+                task.workflow_status = "failed"
+                task.status = "completed"
                 db.commit()
+                logger.error(f"[WF FATAL] task_id={task_id} — step failed after max retries")
                 break
-            
+
             # Update progress
             all_steps = db.query(models.WorkflowStep).filter(
                 models.WorkflowStep.task_id == task_id
             ).all()
             completed = sum(1 for s in all_steps if s.status in ("completed", "skipped"))
-            task.progress = int(completed / len(all_steps) * 100)
+            task.progress = int(completed / len(all_steps) * 100) if all_steps else 0
             db.commit()
-    
+            logger.info(f"[WF PROGRESS] task_id={task_id} {task.progress}%")
+
     finally:
         db.close()
 

@@ -14,11 +14,14 @@ from app.summarizer import generate_summary, maybe_use_summary, get_summaries_fo
 from app.tools import get_agent_tools, _has_browser_tools, _BROWSER_TOOL_GUIDE
 from app.llm_factory import create_llm
 from app.common import get_agent_provider
+from app.logger import get_logger, truncate_for_log
 from langchain.agents import create_agent
 from langchain.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
 from pydantic import BaseModel, Field
 import json
 import os
+
+logger = get_logger(__name__)
 
 router = APIRouter()
 
@@ -173,71 +176,119 @@ async def chat_with_agent(agent_id: int, payload: ChatPayload, db: Session = Dep
             return ''
 
         try:
+            event_count = 0
+            logger.info(f"[CHAT START] agent_id={agent_id} model={agent.model} provider={agent.provider} tools={len(tools) if tools else 0}")
+            logger.debug(f"[CHAT MESSAGES] count={len(messages)} system_prompt_len={len(system_prompt)}")
+            for i, m in enumerate(messages):
+                role = getattr(m, 'type', 'unknown')
+                content = getattr(m, 'content', '')
+                logger.debug(f"  msg[{i}] {role}: {truncate_for_log(content, 200)}")
+
             if tools:
-                # Use create_agent for full ReAct loop with streaming
+                # Use create_agent for full ReAct loop with streaming (LangGraph)
                 agent_runnable = create_agent(
                     llm,
                     tools=tools,
                     system_prompt=system_prompt,
                 )
-                async for event in agent_runnable.astream(
+                logger.info(f"[CHAT AGENT CREATED] tools={[t.name for t in tools]}")
+                event_count = 0
+                # Use astream_events for fine-grained, consistent event format
+                async for event in agent_runnable.astream_events(
                     {"messages": messages},
-                    stream_mode="messages",
+                    version="v2",
                 ):
-                    msg = _extract_message(event)
-                    if not isinstance(msg, AIMessage):
-                        continue
+                    event_count += 1
+                    event_type = event.get("event")
 
-                    # Stream reasoning content (incremental tokens from provider)
-                    reasoning = _extract_reasoning(msg)
-                    if reasoning:
-                        reasoning_buffer += reasoning
-                        yield f"data: {json.dumps({'reasoning': reasoning}, ensure_ascii=False)}\n\n"
+                    # ── LLM streaming tokens ──
+                    if event_type == "on_chat_model_stream":
+                        chunk = event["data"]["chunk"]
+                        # Normalize ChatGenerationChunk -> AIMessageChunk
+                        if hasattr(chunk, "message") and chunk.message is not None:
+                            msg_chunk = chunk.message
+                        elif hasattr(chunk, "content"):
+                            msg_chunk = chunk
+                        else:
+                            continue
 
-                    # Stream text content
-                    if msg.content:
-                        full_response += msg.content
-                        yield f"data: {json.dumps({'content': msg.content}, ensure_ascii=False)}\n\n"
+                        if not isinstance(msg_chunk, (AIMessage, AIMessageChunk)):
+                            continue
 
-                    # Notify about tool calls (filter out streaming partials with empty names)
-                    valid_tool_calls = [tc for tc in (msg.tool_calls or []) if tc.get("name")]
-                    if valid_tool_calls:
-                        tool_names = [tc["name"] for tc in valid_tool_calls]
-                        yield f"data: {json.dumps({'tool_calls': tool_names}, ensure_ascii=False)}\n\n"
-                        # Send detailed browser events for frontend panel
-                        for tc in valid_tool_calls:
-                            if tc["name"].startswith("browser_"):
-                                yield f"data: {json.dumps({'browser_event': {'name': tc['name'], 'args': tc.get('args', {})}}, ensure_ascii=False)}\n\n"
-                                # Send browser_status to show active browsing indicator
-                                if tc["name"] == "browser_navigate":
-                                    url = tc.get("args", {}).get("url", "")
-                                    yield f"data: {json.dumps({'browser_status': {'state': 'navigating', 'url': url}}, ensure_ascii=False)}\n\n"
-                                elif tc["name"] == "browser_get_text":
-                                    yield f"data: {json.dumps({'browser_status': {'state': 'reading'}}, ensure_ascii=False)}\n\n"
+                        # Stream reasoning content
+                        reasoning = _extract_reasoning(msg_chunk)
+                        if reasoning:
+                            reasoning_buffer += reasoning
+                            logger.debug(f"[CHAT STREAM] reasoning={truncate_for_log(reasoning, 200)}")
+                            yield f"data: {json.dumps({'reasoning': reasoning}, ensure_ascii=False)}\n\n"
+
+                        # Stream text content
+                        if msg_chunk.content:
+                            full_response += msg_chunk.content
+                            logger.debug(f"[CHAT STREAM] content={truncate_for_log(msg_chunk.content, 200)}")
+                            yield f"data: {json.dumps({'content': msg_chunk.content}, ensure_ascii=False)}\n\n"
+
+                    # ── LLM call finished (tool_calls appear here) ──
+                    elif event_type == "on_chat_model_end":
+                        output = event["data"]["output"]
+                        # Normalize ChatResult / AIMessage -> AIMessage
+                        if hasattr(output, "generations") and output.generations:
+                            msg = output.generations[0].message
+                        elif isinstance(output, AIMessage):
+                            msg = output
+                        else:
+                            continue
+
+                        # Notify about tool calls
+                        valid_tool_calls = [tc for tc in (msg.tool_calls or []) if tc.get("name")]
+                        if valid_tool_calls:
+                            tool_names = [tc["name"] for tc in valid_tool_calls]
+                            tool_args = [tc.get("args", {}) for tc in valid_tool_calls]
+                            logger.info(f"[CHAT TOOL CALL] names={tool_names} args={truncate_for_log(tool_args, 500)}")
+                            yield f"data: {json.dumps({'tool_calls': tool_names}, ensure_ascii=False)}\n\n"
+                            # Send detailed browser events for frontend panel
+                            for tc in valid_tool_calls:
+                                if tc["name"].startswith("browser_"):
+                                    yield f"data: {json.dumps({'browser_event': {'name': tc['name'], 'args': tc.get('args', {})}}, ensure_ascii=False)}\n\n"
+                                    # Send browser_status to show active browsing indicator
+                                    if tc["name"] == "browser_navigate":
+                                        url = tc.get("args", {}).get("url", "")
+                                        yield f"data: {json.dumps({'browser_status': {'state': 'navigating', 'url': url}}, ensure_ascii=False)}\n\n"
+                                    elif tc["name"] == "browser_get_text":
+                                        yield f"data: {json.dumps({'browser_status': {'state': 'reading'}}, ensure_ascii=False)}\n\n"
             else:
                 # No tools: simple LLM streaming (token-level)
+                logger.info("[CHAT STREAM] No tools, direct LLM streaming")
+                chunk_count = 0
                 async for chunk in llm.astream(messages):
+                    chunk_count += 1
                     # Stream reasoning content (incremental tokens from provider)
                     reasoning = _extract_reasoning(chunk)
                     if reasoning:
                         reasoning_buffer += reasoning
+                        logger.debug(f"[CHAT STREAM] reasoning_chunk={truncate_for_log(reasoning, 200)}")
                         yield f"data: {json.dumps({'reasoning': reasoning}, ensure_ascii=False)}\n\n"
 
                     # Stream text content
                     if chunk.content:
                         full_response += chunk.content
+                        logger.debug(f"[CHAT STREAM] content_chunk={truncate_for_log(chunk.content, 200)}")
                         yield f"data: {json.dumps({'content': chunk.content}, ensure_ascii=False)}\n\n"
+                logger.info(f"[CHAT STREAM] Finished. chunks={chunk_count} total_content_len={len(full_response)}")
 
             # Save final response
             if full_response:
                 append_chat_message(agent_id, "assistant", full_response)
                 if group_id:
                     append_group_chat_message(group_id, "assistant", agent_id, agent.name, full_response)
+                logger.info(f"[CHAT SAVED] agent_id={agent_id} response_len={len(full_response)} reasoning_len={len(reasoning_buffer)}")
 
         except Exception as e:
+            logger.exception(f"[CHAT ERROR] agent_id={agent_id} error={e}")
             error_msg = f"[Error: {e}]"
             yield f"data: {json.dumps({'error': error_msg}, ensure_ascii=False)}\n\n"
 
         yield "data: [DONE]\n\n"
+        logger.info(f"[CHAT DONE] agent_id={agent_id} events={event_count if 'event_count' in locals() else 'N/A'}")
 
     return StreamingResponse(stream_response(), media_type="text/event-stream")

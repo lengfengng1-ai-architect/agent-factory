@@ -5,6 +5,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 
+# Backend root = parent of app/ (i.e. backend/)
+BACKEND_ROOT = Path(__file__).parent.parent.resolve()
+
+
 def _get_data_dir() -> Path:
     # 1. Explicit env var (highest priority, used by desktop app --data-dir)
     env_dir = os.environ.get("AGENT_FACTORY_DATA_DIR")
@@ -20,8 +24,8 @@ def _get_data_dir() -> Path:
         else:
             return Path.home() / ".agent-factory"
 
-    # 3. Web dev mode: keep backward compatibility, use current directory
-    return Path(".")
+    # 3. Web dev mode: fixed location under backend/data/ (not current working dir)
+    return BACKEND_ROOT / "data"
 
 
 data_dir = _get_data_dir()

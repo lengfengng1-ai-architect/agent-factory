@@ -64,8 +64,10 @@ with engine.connect() as conn:
 app = FastAPI(title="Agent Factory API", version="1.0.0")
 
 if os.environ.get("ENV") == "production":
-    # Desktop app: WebView and backend are same-origin, CORS not needed
+    # Desktop app: WebView origin varies (tauri://localhost, http://localhost:PORT).
+    # Use regex to allow any localhost port and the tauri protocol.
     allow_origins = []
+    allow_origin_regex = r"^https?://localhost(:\d+)?$|^tauri://localhost$"
 else:
     # Dev mode: allow common frontend dev server ports
     allow_origins = [
@@ -74,10 +76,12 @@ else:
         "http://127.0.0.1:5173",
         "http://127.0.0.1:3000",
     ]
+    allow_origin_regex = None
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allow_origins,
+    allow_origin_regex=allow_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -94,6 +94,12 @@ export interface ChatFile {
   timestamp: string;
 }
 
+export interface Source {
+  url: string;
+  title?: string;
+  type?: 'search' | 'browse';
+}
+
 export interface FileSummary {
   id: number;
   content_hash: string;

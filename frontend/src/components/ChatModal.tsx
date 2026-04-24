@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Bot, User, Send, X, FileText, BookOpen, MessageCircle, Copy, Check, Globe } from 'lucide-react'
-import type { Agent, ChatFile } from '../types'
+import type { Agent, ChatFile, Source } from '../types'
 import { chatApi, fileApi, summaryApi, feishuApi } from '../api/client'
 import ChatFileBar, { type FileMode } from './ChatFileBar'
 import BrowserPanel from './BrowserPanel'
@@ -12,6 +12,7 @@ interface Message {
   fileIds?: string[]
   reasoning?: string
   toolCalls?: string[]
+  sources?: Source[]
 }
 
 interface BrowserEvent {
@@ -100,6 +101,7 @@ export default function ChatModal({ agent, onClose }: Props) {
       setMessages(historyData.messages.map(m => ({
         role: m.role as 'user' | 'assistant',
         content: m.content,
+        sources: m.sources,
       })))
     }
   }, [historyData])
@@ -135,6 +137,14 @@ export default function ChatModal({ agent, onClose }: Props) {
       alert(`删除失败: ${err.message || 'Unknown error'}`)
     }
   }, [agent.id])
+
+  function getDomain(url: string): string {
+    try {
+      return new URL(url).hostname
+    } catch {
+      return url
+    }
+  }
 
   const handleCopy = async (text: string, idx: number) => {
     try {
@@ -234,6 +244,8 @@ export default function ChatModal({ agent, onClose }: Props) {
               tool_calls?: string[]
               error?: string
               browser_event?: BrowserEvent
+              browser_status?: BrowserStatus
+              sources?: Source[]
             }
             if (parsed.error) {
               setMessages(prev => {
@@ -274,6 +286,15 @@ export default function ChatModal({ agent, onClose }: Props) {
             if (browserStatusEvent) {
               browserStatusRef.current = browserStatusEvent
               setBrowserStatus(browserStatusEvent)
+            }
+            if (parsed.sources && parsed.sources.length > 0) {
+              setMessages(prev => {
+                const last = prev[prev.length - 1]
+                if (last && last.role === 'assistant') {
+                  return [...prev.slice(0, -1), { ...last, sources: parsed.sources }]
+                }
+                return [...prev, { role: 'assistant', content: contentRef.current || '', sources: parsed.sources }]
+              })
             }
           } catch {
             // ignore malformed JSON
@@ -436,6 +457,34 @@ export default function ChatModal({ agent, onClose }: Props) {
                     <span className="inline-block w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
                   ) : null)}
                 </div>
+                {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 && (
+                  <div className="mt-1.5">
+                    <details className="text-xs">
+                      <summary className="cursor-pointer text-gray-500 hover:text-gray-700 flex items-center gap-1">
+                        <span>🔗</span>
+                        <span>数据来源 ({msg.sources.length})</span>
+                      </summary>
+                      <div className="mt-1 space-y-1 pl-4 border-l-2 border-gray-200">
+                        {msg.sources.map((source, i) => (
+                          <div key={i} className="flex items-start gap-1">
+                            <span className="text-gray-400 mt-0.5">
+                              {source.type === 'search' ? '🔍' : '🌐'}
+                            </span>
+                            <a
+                              href={source.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:text-blue-800 hover:underline truncate max-w-[200px]"
+                              title={source.title || source.url}
+                            >
+                              {source.title || getDomain(source.url)}
+                            </a>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  </div>
+                )}
                 {msg.content && !loading && (
                   <button
                     onClick={() => handleCopy(msg.content, idx)}

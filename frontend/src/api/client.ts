@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Agent, Group, Task, TaskStatus, Provider, ProviderModel, ChatFile, FileSummary, WorkflowStep } from '../types';
+import type { Agent, Group, Task, TaskStatus, Provider, ProviderModel, ChatFile, FileSummary, WorkflowStep, Source } from '../types';
 
 const api = axios.create({
   baseURL: '/api',
@@ -65,7 +65,7 @@ export const providerApi = {
 
 export const chatApi = {
   history: (agentId: number) =>
-    api.get<{ messages: { role: string; content: string; timestamp: string }[] }>(`/agents/${agentId}/chat/history`).then(r => r.data),
+    api.get<{ messages: { role: string; content: string; timestamp: string; sources?: Source[] }[] }>(`/agents/${agentId}/chat/history`).then(r => r.data),
 };
 
 export const feishuApi = {

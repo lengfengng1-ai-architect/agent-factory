@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useDraggable } from '@dnd-kit/core'
 import type { Task } from '../types'
 import { GripVertical, Pencil, Trash2 } from 'lucide-react'
@@ -12,6 +13,7 @@ interface Props {
 }
 
 export default function TaskCard({ task, onSelect, onEdit, onDelete, isSelected, isOverlay }: Props) {
+  const [showConfirm, setShowConfirm] = useState(false)
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id: `task-${task.id}`,
     data: task,
@@ -78,9 +80,7 @@ export default function TaskCard({ task, onSelect, onEdit, onDelete, isSelected,
                   <button
                     onClick={(e) => {
                       e.stopPropagation()
-                      if (confirm(`确定要删除任务「${task.title}」吗？`)) {
-                        onDelete(task)
-                      }
+                      setShowConfirm(true)
                     }}
                     className="text-gray-400 hover:text-red-600 p-0.5 rounded hover:bg-red-50"
                     title="删除"
@@ -146,6 +146,41 @@ export default function TaskCard({ task, onSelect, onEdit, onDelete, isSelected,
           </div>
         </div>
       </div>
+
+      {/* Delete confirmation dialog */}
+      {showConfirm && (
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-[9999]"
+          onClick={() => setShowConfirm(false)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl p-5 w-80 max-w-[90vw]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-sm font-semibold text-gray-900 mb-2">确认删除</h3>
+            <p className="text-xs text-gray-600 mb-4">
+              确定要删除任务「{task.title}」吗？此操作不可恢复。
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setShowConfirm(false)}
+                className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => {
+                  setShowConfirm(false)
+                  onDelete?.(task)
+                }}
+                className="px-3 py-1.5 text-xs font-medium text-white bg-red-500 hover:bg-red-600 rounded-lg transition-colors"
+              >
+                删除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

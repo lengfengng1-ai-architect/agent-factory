@@ -12,6 +12,7 @@ export const agentApi = {
   create: (data: Omit<Agent, 'id' | 'created_at'>) => api.post<Agent>('/agents', data).then(r => r.data),
   update: (id: number, data: Partial<Agent>) => api.put<Agent>(`/agents/${id}`, data).then(r => r.data),
   delete: (id: number) => api.delete(`/agents/${id}`).then(r => r.data),
+  browserState: (id: number) => api.get<{ url: string | null; title: string | null; has_screenshot: boolean }>(`/agents/${id}/browser/state`).then(r => r.data),
 };
 
 export const groupApi = {

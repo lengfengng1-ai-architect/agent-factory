@@ -6,7 +6,10 @@ a = Analysis(
     ['app/cli.py'],
     pathex=['.', '.venv/lib/python3.11/site-packages'],
     binaries=[],
-    datas=[('../frontend/dist', 'dist')],
+    datas=[
+        ('../frontend/dist', 'dist'),
+        ('playwright-browsers', 'playwright-browsers'),
+    ],
     hiddenimports=[
         # SQLAlchemy
         'sqlalchemy',

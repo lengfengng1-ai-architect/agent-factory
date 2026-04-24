@@ -11,10 +11,12 @@ from app.redis_client import (
 from app.file_utils import extract_text
 from app.context_manager import build_messages_with_budget, get_model_context_window
 from app.summarizer import generate_summary, maybe_use_summary, get_summaries_for_agent
-from app.tools import get_agent_tools
+from app.tools import get_agent_tools, _has_browser_tools, _BROWSER_TOOL_GUIDE
 from app.llm_factory import create_llm
+from app.common import get_agent_provider
 from langchain.agents import create_agent
 from langchain.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
+from pydantic import BaseModel, Field
 import json
 import os
 
@@ -26,26 +28,26 @@ def get_agent_chat_history(agent_id: int):
     return {"messages": get_chat_history(agent_id)}
 
 
+class ChatPayload(BaseModel):
+    message: str = Field(..., description="User message text")
+    files: list[str] = Field(default_factory=list, description="List of file IDs to attach")
+    file_mode: str = Field(default="auto", description="File processing mode: auto, truncate, summary")
+    group_id: int | None = Field(default=None, description="Optional group ID for group chat history")
+
+
 @router.post("/{agent_id}/chat")
-async def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(get_db)):
+async def chat_with_agent(agent_id: int, payload: ChatPayload, db: Session = Depends(get_db)):
     agent = db.query(models.Agent).filter(models.Agent.id == agent_id).first()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    user_message = payload.get("message", "")
+    user_message = payload.message
     if not user_message:
         raise HTTPException(status_code=400, detail="message is required")
 
-    provider = db.query(models.Provider).filter(
-        models.Provider.key == (agent.provider or "kimi").lower()
-    ).first()
-    if not provider:
-        raise HTTPException(status_code=400, detail=f"Unknown provider: {agent.provider}")
-    if not provider.is_enabled:
-        raise HTTPException(status_code=400, detail=f"Provider {provider.name} is disabled")
-
-    # Build LLM
+    # Validate provider and build LLM
     try:
+        provider = get_agent_provider(db, agent)
         llm = create_llm(agent, provider, streaming=True)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -54,21 +56,14 @@ async def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(ge
 
     # Save user message
     append_chat_message(agent_id, "user", user_message)
-    group_id = payload.get("group_id")
+    group_id = payload.group_id
     if group_id:
-        from app.database import get_db as get_db_local
-        db_local = next(get_db_local())
-        try:
-            agent_obj = db_local.query(models.Agent).filter(models.Agent.id == agent_id).first()
-            if agent_obj:
-                append_group_chat_message(group_id, "user", 0, "User", user_message)
-        finally:
-            db_local.close()
+        append_group_chat_message(group_id, "user", 0, "User", user_message)
 
     # Build messages with history and file attachments
     history = get_chat_history(agent_id)
-    file_ids = payload.get("files", []) or []
-    file_mode = payload.get("file_mode", "auto")
+    file_ids = payload.files or []
+    file_mode = payload.file_mode or "auto"
     file_contents = []
 
     if file_ids:
@@ -129,6 +124,8 @@ async def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(ge
             override_root = group.file_root_dir
 
     tools = get_agent_tools(agent, override_root_dir=override_root)
+    if _has_browser_tools(tools):
+        system_prompt += _BROWSER_TOOL_GUIDE
 
     async def stream_response():
         """Stream agent response directly using agent.astream().
@@ -201,10 +198,15 @@ async def chat_with_agent(agent_id: int, payload: dict, db: Session = Depends(ge
                         full_response += msg.content
                         yield f"data: {json.dumps({'content': msg.content}, ensure_ascii=False)}\n\n"
 
-                    # Notify about tool calls
-                    if msg.tool_calls:
-                        tool_names = [tc["name"] for tc in msg.tool_calls]
+                    # Notify about tool calls (filter out streaming partials with empty names)
+                    valid_tool_calls = [tc for tc in (msg.tool_calls or []) if tc.get("name")]
+                    if valid_tool_calls:
+                        tool_names = [tc["name"] for tc in valid_tool_calls]
                         yield f"data: {json.dumps({'tool_calls': tool_names}, ensure_ascii=False)}\n\n"
+                        # Send detailed browser events for frontend panel
+                        for tc in valid_tool_calls:
+                            if tc["name"].startswith("browser_"):
+                                yield f"data: {json.dumps({'browser_event': {'name': tc['name'], 'args': tc.get('args', {})}}, ensure_ascii=False)}\n\n"
             else:
                 # No tools: simple LLM streaming (token-level)
                 async for chunk in llm.astream(messages):

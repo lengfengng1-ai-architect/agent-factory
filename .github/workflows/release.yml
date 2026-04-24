@@ -136,19 +136,27 @@ jobs:
           npm run build
 
       # ============================================
-      # 7. Build backend with PyInstaller
+      # 7. Install Playwright Chromium for desktop bundle
+      # ============================================
+      - name: Install Playwright browsers
+        run: |
+          cd backend
+          uv sync
+          PLAYWRIGHT_BROWSERS_PATH=./playwright-browsers uv run playwright install chromium-headless-shell
+
+      # ============================================
+      # 8. Build backend with PyInstaller
       # ============================================
       - name: Build backend
         run: |
           cd backend
-          uv sync
           uv pip install pyinstaller
           export PYTHONPATH=.
           # Don't use --clean so PyInstaller can reuse its cache between runs
           .venv/bin/python -m PyInstaller agent-factory.spec --noconfirm
 
       # ============================================
-      # 8. Copy binaries to Tauri
+      # 9. Copy binaries to Tauri
       # ============================================
       - name: Prepare Tauri binaries
         run: |
@@ -165,7 +173,7 @@ jobs:
           chmod +x "desktop/src-tauri/binaries/redis-server-aarch64-apple-darwin"
 
       # ============================================
-      # 9. Build Tauri desktop app
+      # 10. Build Tauri desktop app
       # ============================================
       - name: Install cargo-binstall
         run: |
@@ -184,7 +192,7 @@ jobs:
           cargo tauri build --target aarch64-apple-darwin
 
       # ============================================
-      # 10. Rename and collect artifacts
+      # 11. Rename and collect artifacts
       # ============================================
       - name: Prepare artifacts
         run: |

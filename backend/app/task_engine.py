@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from langchain.messages import HumanMessage, SystemMessage
 from app.tools import get_agent_tools, run_llm_with_tools
 from app.llm_factory import create_llm
+from app.common import get_agent_provider
 from app import models
 from app.database import SessionLocal
 
@@ -19,11 +20,10 @@ async def _execute_with_agent(task: models.Task, db: Session):
     if not agent:
         return "Error: Agent not found"
 
-    provider = db.query(models.Provider).filter(
-        models.Provider.key == (agent.provider or "kimi").lower()
-    ).first()
-    if not provider or not provider.is_enabled:
-        return "Error: Provider not available"
+    try:
+        provider = get_agent_provider(db, agent)
+    except ValueError as e:
+        return f"Error: {e}"
 
     llm = create_llm(agent, provider)
     tools = get_agent_tools(agent, override_root_dir=task.file_root_dir or None)
@@ -78,10 +78,9 @@ async def _execute_with_group(task: models.Task, db: Session):
         agent = db.query(models.Agent).filter(models.Agent.id == agent_id).first()
         if not agent:
             continue
-        provider = db.query(models.Provider).filter(
-            models.Provider.key == (agent.provider or "kimi").lower()
-        ).first()
-        if not provider or not provider.is_enabled:
+        try:
+            provider = get_agent_provider(db, agent)
+        except ValueError:
             continue
 
         llm = create_llm(agent, provider)
@@ -104,10 +103,11 @@ async def _execute_with_group(task: models.Task, db: Session):
     # Phase 2: Moderator summarizes
     moderator = db.query(models.Agent).filter(models.Agent.id == moderator_id).first()
     if moderator and expert_responses:
-        provider = db.query(models.Provider).filter(
-            models.Provider.key == (moderator.provider or "kimi").lower()
-        ).first()
-        if provider and provider.is_enabled:
+        try:
+            provider = get_agent_provider(db, moderator)
+        except ValueError:
+            provider = None
+        if provider:
             llm = create_llm(moderator, provider)
             tools = get_agent_tools(moderator, override_root_dir=task.file_root_dir or None)
             summary_prompt = _build_moderator_summary_prompt(task_prompt, expert_responses)
@@ -144,10 +144,9 @@ async def _should_use_workflow(task: models.Task, db: Session) -> bool:
     if not agent:
         return False
 
-    provider = db.query(models.Provider).filter(
-        models.Provider.key == (agent.provider or "kimi").lower()
-    ).first()
-    if not provider or not provider.is_enabled:
+    try:
+        provider = get_agent_provider(db, agent)
+    except ValueError:
         return False
 
     llm = create_llm(agent, provider)

@@ -3,6 +3,7 @@
   "description": "Default capabilities",
   "windows": ["main"],
   "permissions": [
-    "updater:default"
+    "updater:default",
+    "core:window:allow-create"
   ]
 }

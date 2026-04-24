@@ -11,8 +11,10 @@ from app.file_utils import extract_text, format_files_for_prompt
 from app.context_manager import build_messages_with_budget, get_model_context_window
 from app.summarizer import generate_summary, maybe_use_summary, get_summaries_for_group
 from app.llm_factory import create_llm
+from app.common import get_agent_provider
 from app.tools import get_agent_tools, run_llm_with_tools
 from langchain.messages import HumanMessage, SystemMessage, AIMessage
+from pydantic import BaseModel, Field
 import json
 
 router = APIRouter()
@@ -66,13 +68,12 @@ async def _load_group_file_contents(
             agent = db.query(models.Agent).filter(models.Agent.id == aid).first()
             if not agent:
                 continue
-            provider = db.query(models.Provider).filter(
-                models.Provider.key == (agent.provider or "kimi").lower()
-            ).first()
-            if provider and provider.is_enabled:
+            try:
+                fallback_provider = get_agent_provider(db, agent)
                 fallback_agent = agent
-                fallback_provider = provider
                 break
+            except ValueError:
+                continue
 
     for fid in file_ids:
         meta = file_id_to_meta.get(fid)
@@ -112,19 +113,25 @@ def get_group_chat_history_endpoint(group_id: int, db: Session = Depends(get_db)
     return {"messages": redis_client.get_group_chat_history(group_id)}
 
 
+class GroupChatPayload(BaseModel):
+    message: str = Field(..., description="User message text")
+    files: list[str] = Field(default_factory=list, description="List of file IDs to attach")
+    file_mode: str = Field(default="auto", description="File processing mode: auto, truncate, summary")
+
+
 @router.post("/{group_id}/chat")
-async def group_chat(group_id: int, payload: dict, db: Session = Depends(get_db)):
+async def group_chat(group_id: int, payload: GroupChatPayload, db: Session = Depends(get_db)):
     group = db.query(models.Group).filter(models.Group.id == group_id).first()
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
 
     chat_type = group.chat_type or "parallel"
-    user_message = payload.get("message", "")
+    user_message = payload.message
     if not user_message:
         raise HTTPException(status_code=400, detail="message is required")
 
-    file_ids = payload.get("files", []) or []
-    file_mode = payload.get("file_mode", "auto")
+    file_ids = payload.files or []
+    file_mode = payload.file_mode or "auto"
 
     file_contents = await _load_group_file_contents(group_id, file_ids, file_mode, db)
 
@@ -168,12 +175,11 @@ def _brainstorm_chat(group, user_message, db, file_contents: list[dict] = None):
             agent = db.query(models.Agent).filter(models.Agent.id == agent_id).first()
             if not agent:
                 continue
-            provider = db.query(models.Provider).filter(
-                models.Provider.key == (agent.provider or "kimi").lower()
-            ).first()
-            if not provider or not provider.is_enabled:
+            try:
+                provider = get_agent_provider(db, agent)
+                agent_configs.append((agent, provider))
+            except ValueError:
                 continue
-            agent_configs.append((agent, provider))
 
         # Execute all agents in parallel
         async def _run_agent(agent, provider):
@@ -296,10 +302,9 @@ def _debate_chat(group, user_message, db, file_contents: list[dict] = None):
                 if not agent:
                     continue
 
-                provider = db.query(models.Provider).filter(
-                    models.Provider.key == (agent.provider or "kimi").lower()
-                ).first()
-                if not provider or not provider.is_enabled:
+                try:
+                    provider = get_agent_provider(db, agent)
+                except ValueError:
                     continue
 
                 messages = _build_debate_messages(agent, history, side, r + 1, file_contents)
@@ -321,10 +326,11 @@ def _debate_chat(group, user_message, db, file_contents: list[dict] = None):
                 db.query(models.Agent).filter(models.Agent.id == summary_agent_id).first()
             )
             if summary_agent:
-                provider = db.query(models.Provider).filter(
-                    models.Provider.key == (summary_agent.provider or "kimi").lower()
-                ).first()
-                if provider and provider.is_enabled:
+                try:
+                    provider = get_agent_provider(db, summary_agent)
+                except ValueError:
+                    provider = None
+                if provider:
                     summary_prompt = _build_summary_prompt(
                         redis_client.get_group_chat_history(group.id)
                     )
@@ -407,10 +413,9 @@ def _moderator_chat(group, user_message, db, file_contents: list[dict] = None):
             agent = db.query(models.Agent).filter(models.Agent.id == agent_id).first()
             if not agent:
                 return None
-            provider = db.query(models.Provider).filter(
-                models.Provider.key == (agent.provider or "kimi").lower()
-            ).first()
-            if not provider or not provider.is_enabled:
+            try:
+                provider = get_agent_provider(db, agent)
+            except ValueError:
                 return None
 
             llm = create_llm(agent, provider, streaming=False)
@@ -439,10 +444,11 @@ def _moderator_chat(group, user_message, db, file_contents: list[dict] = None):
         # Phase 2: Moderator summarizes
         moderator = db.query(models.Agent).filter(models.Agent.id == moderator_id).first()
         if moderator and expert_responses:
-            provider = db.query(models.Provider).filter(
-                models.Provider.key == (moderator.provider or "kimi").lower()
-            ).first()
-            if provider and provider.is_enabled:
+            try:
+                provider = get_agent_provider(db, moderator)
+            except ValueError:
+                provider = None
+            if provider:
                 summary_prompt = _build_moderator_summary_prompt(user_message, expert_responses)
 
                 llm = create_llm(moderator, provider, streaming=False)

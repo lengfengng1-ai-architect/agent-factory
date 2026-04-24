@@ -96,6 +96,27 @@ fn start_redis(data_dir: &std::path::Path) -> Option<Child> {
     }
 }
 
+#[tauri::command]
+fn open_browser_window(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    let window_id = format!("browser-{}", std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis());
+    
+    let _window = tauri::WebviewWindowBuilder::new(
+        &app,
+        &window_id,
+        tauri::WebviewUrl::External(url.parse().map_err(|e| format!("Invalid URL: {}", e))?)
+    )
+    .title("Browser")
+    .inner_size(1200.0, 800.0)
+    .center()
+    .build()
+    .map_err(|e| format!("Failed to create window: {}", e))?;
+    
+    Ok(())
+}
+
 fn start_backend(port: u16, redis_port: u16) -> Option<Child> {
     let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
     let backend_path = exe_dir.join("agent-factory-backend");
@@ -152,6 +173,7 @@ fn main() {
     let backend_port = port;
 
     tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![open_browser_window])
         .manage(AppState {
             backend_process: Mutex::new(Some(backend_process)),
             redis_process: Mutex::new(redis_process),

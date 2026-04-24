@@ -15,6 +15,7 @@ from langchain.messages import HumanMessage, SystemMessage
 from app import models
 from app.database import SessionLocal
 from app.llm_factory import create_llm
+from app.common import get_agent_provider
 from app.tools import get_agent_tools, run_llm_with_tools
 
 MAX_WORKFLOW_STEPS = 50
@@ -66,12 +67,7 @@ async def breakdown_task(task: models.Task, db: Session, require_first_checkpoin
     if not agent:
         raise ValueError("Task has no valid assignee agent")
     
-    provider = db.query(models.Provider).filter(
-        models.Provider.key == (agent.provider or "kimi").lower()
-    ).first()
-    if not provider or not provider.is_enabled:
-        raise ValueError("Agent provider not available")
-    
+    provider = get_agent_provider(db, agent)
     llm = create_llm(agent, provider)
     
     prompt = f"""你是一位任务规划专家。请将以下复杂任务拆解为可执行的步骤列表。
@@ -235,16 +231,15 @@ async def execute_step(step: models.WorkflowStep, task: models.Task, db: Session
         step.result = "Error: Agent not found"
         db.commit()
         return
-    
-    provider = db.query(models.Provider).filter(
-        models.Provider.key == (agent.provider or "kimi").lower()
-    ).first()
-    if not provider or not provider.is_enabled:
+
+    try:
+        provider = get_agent_provider(db, agent)
+    except ValueError as e:
         step.status = "failed"
-        step.result = "Error: Provider not available"
+        step.result = f"Error: {e}"
         db.commit()
         return
-    
+
     llm = create_llm(agent, provider)
     tools = get_agent_tools(agent, override_root_dir=task.file_root_dir or None)
     

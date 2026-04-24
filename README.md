@@ -71,6 +71,7 @@ graph TD
 | 多供应商 | 支持 Kimi / OpenAI / DeepSeek / 阿里云百炼 / 火山方舟 / Ollama / Custom |
 | 独立配置 | 每个 Agent 独立设置 Provider、Model、API Key、System Prompt |
 | 实时对话 | SSE 流式传输，打字机式输出，支持历史记录持久化 |
+| **浏览器自动化** | 开启 `enable_browsing` 后 Agent 可操控 Playwright 浏览器，前端实时显示截图 |
 | **Thinking 模式** | 支持 DeepSeek reasoner / Kimi K2.6 的思考过程展示 |
 
 ### 🔌 Provider 管理中心
@@ -191,19 +192,22 @@ cd frontend
 npm ci
 npm run build
 
-# 2. 构建后端（PyInstaller）
+# 2. 安装 Playwright 浏览器（桌面端必需）
 cd ../backend
 uv sync
+PLAYWRIGHT_BROWSERS_PATH=./playwright-browsers uv run playwright install chromium-headless-shell
+
+# 3. 构建后端（PyInstaller）
 uv pip install pyinstaller
 export PYTHONPATH=.
 .venv/bin/python -m PyInstaller agent-factory.spec --noconfirm
 
-# 3. 准备二进制
+# 4. 准备二进制
 cp backend/dist/agent-factory-backend desktop/src-tauri/binaries/
 brew install redis
 cp $(which redis-server) desktop/src-tauri/binaries/redis-server
 
-# 4. 构建 Tauri 桌面应用（cargo-binstall 比 cargo install 快很多）
+# 5. 构建 Tauri 桌面应用（cargo-binstall 比 cargo install 快很多）
 cd desktop/src-tauri
 cargo binstall cargo-tauri --locked --no-confirm
 cargo tauri build
@@ -229,10 +233,15 @@ sequenceDiagram
     F->>B: POST /api/agents/{id}/chat
     B->>R: 保存用户消息
     B->>R: 读取历史记录
-    B->>L: 发送消息 + 历史上下文
+    B->>L: 发送消息 + 历史上下文 + 工具
     L-->>B: SSE 流式返回
-    B-->>F: 实时推送 chunk
+    B-->>F: 实时推送 chunk / tool_calls / browser_event
     B->>R: 保存助手回复
+    opt 浏览器工具调用
+        B->>B: Playwright 操作浏览器
+        B->>B: 自动截图保存
+        B-->>F: 推送 browser_event
+    end
 ```
 
 ### Group 头脑风暴流程
@@ -309,6 +318,7 @@ cd frontend && npm run dev
 │       │   └── TasksPage.tsx
 │       └── components/
 │           ├── AgentModal.tsx
+│           ├── BrowserPanel.tsx      # 浏览器截图面板
 │           ├── ChatModal.tsx
 │           ├── GroupChatModal.tsx
 │           ├── GroupModal.tsx
@@ -333,6 +343,8 @@ cd frontend && npm run dev
 | `GET/PUT/DELETE /api/agents/{id}` | 获取 / 更新 / 删除 |
 | `POST /api/agents/{id}/chat` | 实时对话（SSE），可选 `group_id` |
 | `GET /api/agents/{id}/chat/history` | 查询聊天记录 |
+| `GET /api/agents/{id}/browser/screenshot` | 获取浏览器实时截图（PNG） |
+| `GET /api/agents/{id}/browser/state` | 获取浏览器当前 URL / 标题 |
 
 ### Group
 | 端点 | 说明 |

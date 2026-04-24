@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Bot, User, Send, X, FileText, BookOpen, MessageCircle, Copy, Check } from 'lucide-react'
+import { Bot, User, Send, X, FileText, BookOpen, MessageCircle, Copy, Check, Globe } from 'lucide-react'
 import type { Agent, ChatFile } from '../types'
 import { chatApi, fileApi, summaryApi, feishuApi } from '../api/client'
 import ChatFileBar, { type FileMode } from './ChatFileBar'
+import BrowserPanel from './BrowserPanel'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -11,6 +12,11 @@ interface Message {
   fileIds?: string[]
   reasoning?: string
   toolCalls?: string[]
+}
+
+interface BrowserEvent {
+  name: string
+  args: Record<string, string>
 }
 
 interface Props {
@@ -35,6 +41,15 @@ export default function ChatModal({ agent, onClose }: Props) {
   const [selectedSummaries, setSelectedSummaries] = useState<number[]>([])
   const [activeTab, setActiveTab] = useState<'chat' | 'feishu'>('chat')
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null)
+  const [showBrowser, setShowBrowser] = useState(false)
+  const [browserEvents, setBrowserEvents] = useState<BrowserEvent[]>([])
+
+  // Use refs for streaming accumulation to avoid excessive re-renders
+  const contentRef = useRef('')
+  const reasoningRef = useRef('')
+  const toolCallsRef = useRef<string[]>([])
+  const browserEventsRef = useRef<BrowserEvent[]>([])
+  const rafPending = useRef(false)
 
   useEffect(() => {
     if (activeTab === 'feishu' && !agent.config?.feishu?.enabled) {
@@ -137,8 +152,34 @@ export default function ChatModal({ agent, onClose }: Props) {
     // Add placeholder assistant message
     setMessages(prev => [...prev, { role: 'assistant', content: '', reasoning: '', toolCalls: [] }])
 
-    let fullReasoning = ''
-    let toolCalls: string[] = []
+    contentRef.current = ''
+    reasoningRef.current = ''
+    toolCallsRef.current = []
+    browserEventsRef.current = []
+
+    const flushToState = () => {
+      rafPending.current = false
+      setMessages(prev => {
+        const next = [...prev]
+        const last = next[next.length - 1]
+        if (last && last.role === 'assistant') {
+          next[next.length - 1] = {
+            ...last,
+            content: contentRef.current,
+            reasoning: reasoningRef.current || undefined,
+            toolCalls: toolCallsRef.current.length > 0 ? [...toolCallsRef.current] : undefined,
+          }
+        }
+        return next
+      })
+    }
+
+    const scheduleFlush = () => {
+      if (!rafPending.current) {
+        rafPending.current = true
+        requestAnimationFrame(flushToState)
+      }
+    }
 
     try {
       const res = await fetch(`/api/agents/${agent.id}/chat`, {
@@ -185,6 +226,7 @@ export default function ChatModal({ agent, onClose }: Props) {
               reasoning?: string
               tool_calls?: string[]
               error?: string
+              browser_event?: BrowserEvent
             }
             if (parsed.error) {
               setMessages(prev => {
@@ -197,33 +239,25 @@ export default function ChatModal({ agent, onClose }: Props) {
               continue
             }
             if (parsed.reasoning) {
-              fullReasoning += parsed.reasoning
-              setMessages(prev => {
-                const last = prev[prev.length - 1]
-                if (last && last.role === 'assistant') {
-                  return [...prev.slice(0, -1), { ...last, reasoning: fullReasoning }]
-                }
-                return prev
-              })
+              reasoningRef.current += parsed.reasoning
+              scheduleFlush()
             }
             if (parsed.content) {
-              setMessages(prev => {
-                const last = prev[prev.length - 1]
-                if (last && last.role === 'assistant') {
-                  return [...prev.slice(0, -1), { ...last, content: last.content + parsed.content }]
-                }
-                return prev
-              })
+              contentRef.current += parsed.content
+              scheduleFlush()
             }
             if (parsed.tool_calls && parsed.tool_calls.length > 0) {
-              toolCalls = [...toolCalls, ...parsed.tool_calls]
-              setMessages(prev => {
-                const last = prev[prev.length - 1]
-                if (last && last.role === 'assistant') {
-                  return [...prev.slice(0, -1), { ...last, toolCalls }]
+              for (const tc of parsed.tool_calls) {
+                if (!toolCallsRef.current.includes(tc)) {
+                  toolCallsRef.current.push(tc)
                 }
-                return prev
-              })
+              }
+              scheduleFlush()
+            }
+            const browserEvent = parsed.browser_event
+            if (browserEvent) {
+              browserEventsRef.current.push(browserEvent)
+              setBrowserEvents(prev => [...prev, browserEvent])
             }
           } catch {
             // ignore malformed JSON
@@ -231,12 +265,15 @@ export default function ChatModal({ agent, onClose }: Props) {
         }
       }
     } catch (err: any) {
-      setMessages(prev => {
-        const next = [...prev]
-        next[next.length - 1] = { role: 'assistant', content: `Error: ${err.message || 'Unknown error'}` }
-        return next
-      })
+      contentRef.current = `Error: ${err.message || 'Unknown error'}`
+      flushToState()
     } finally {
+      // Final flush to ensure all content is rendered
+      if (rafPending.current) {
+        flushToState()
+      } else {
+        flushToState()
+      }
       setLoading(false)
     }
   }
@@ -251,9 +288,11 @@ export default function ChatModal({ agent, onClose }: Props) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={onClose}>
       <div
-        className="relative bg-white rounded-xl w-full max-w-lg h-[80vh] shadow-xl flex flex-col overflow-hidden"
+        className={`relative bg-white rounded-xl w-full shadow-xl flex overflow-hidden ${showBrowser ? 'max-w-6xl h-[85vh]' : 'max-w-lg h-[80vh]'}`}
         onClick={e => e.stopPropagation()}
       >
+        {/* Main chat area */}
+        <div className={`flex flex-col overflow-hidden ${showBrowser ? 'w-[55%]' : 'w-full'}`}>
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
           <div className="flex items-center gap-3">
@@ -273,6 +312,16 @@ export default function ChatModal({ agent, onClose }: Props) {
             >
               <BookOpen size={18} />
             </button>
+            {agent.config?.enable_browsing && (
+              <button
+                onClick={() => setShowBrowser(v => !v)}
+                className={`p-1.5 rounded-lg flex items-center gap-1 text-xs ${showBrowser ? 'bg-blue-100 text-blue-700' : 'hover:bg-gray-100 text-gray-500'}`}
+                title="浏览器面板"
+              >
+                <Globe size={16} />
+                {showBrowser && <span>浏览器</span>}
+              </button>
+            )}
             <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500">
               <X size={18} />
             </button>
@@ -467,7 +516,6 @@ export default function ChatModal({ agent, onClose }: Props) {
 
         {activeTab === 'chat' && (
           <>
-            {/* File bar */}
             <ChatFileBar
               files={files}
               fileMode={fileMode}
@@ -477,8 +525,6 @@ export default function ChatModal({ agent, onClose }: Props) {
               disabled={loading}
               uploading={uploading}
             />
-
-            {/* Input */}
             <div className="px-5 py-4 border-t border-gray-200">
               <div className="flex gap-2">
                 <input
@@ -502,6 +548,18 @@ export default function ChatModal({ agent, onClose }: Props) {
           </>
         )}
       </div>
+
+      {/* Browser panel */}
+      {showBrowser && agent.config?.enable_browsing && (
+        <div className="w-[45%] border-l border-gray-200">
+          <BrowserPanel
+            agentId={agent.id}
+            browserEvents={browserEvents}
+            onClose={() => setShowBrowser(false)}
+          />
+        </div>
+      )}
     </div>
+  </div>
   )
 }

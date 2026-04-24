@@ -43,17 +43,17 @@ fn wait_for_backend(port: u16, timeout_secs: u64) -> bool {
     false
 }
 
-fn start_redis() -> Option<Child> {
+fn start_redis(data_dir: &std::path::Path) -> Option<Child> {
     let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
     let redis_path = exe_dir.join("redis-server");
     if !redis_path.exists() {
         eprintln!("Warning: redis-server binary not found at {:?}", redis_path);
         return None;
     }
-    let temp_dir = std::env::temp_dir().join("agent-factory-redis");
-    std::fs::create_dir_all(&temp_dir).ok()?;
+    let redis_dir = data_dir.join("redis");
+    std::fs::create_dir_all(&redis_dir).ok()?;
     match Command::new(&redis_path)
-        .args(&["--port", &REDIS_PORT.to_string(), "--dir", &temp_dir.to_string_lossy(), "--daemonize", "no"])
+        .args(&["--port", &REDIS_PORT.to_string(), "--dir", &redis_dir.to_string_lossy(), "--daemonize", "no"])
         .spawn() {
         Ok(child) => {
             println!("Started embedded redis-server on port {}", REDIS_PORT);
@@ -94,7 +94,12 @@ fn start_backend(port: u16, redis_port: u16) -> Option<Child> {
 fn main() {
     let port = find_free_port(18000, 18100).expect("No free port found");
 
-    let redis_process = start_redis();
+    let data_dir = dirs::data_dir()
+        .map(|d| d.join("Agent Factory"))
+        .unwrap_or_else(|| std::env::temp_dir().join("agent-factory"));
+    std::fs::create_dir_all(&data_dir).expect("Failed to create data directory");
+
+    let redis_process = start_redis(&data_dir);
     println!("Waiting for Redis to be ready...");
     if !wait_for_redis(REDIS_PORT, 10) {
         eprintln!("Redis failed to start within 10 seconds");

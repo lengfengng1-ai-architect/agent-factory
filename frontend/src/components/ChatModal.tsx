@@ -19,6 +19,11 @@ interface BrowserEvent {
   args: Record<string, string>
 }
 
+interface BrowserStatus {
+  state: 'navigating' | 'reading' | 'idle'
+  url?: string
+}
+
 interface Props {
   agent: Agent
   onClose: () => void
@@ -43,12 +48,14 @@ export default function ChatModal({ agent, onClose }: Props) {
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null)
   const [showBrowser, setShowBrowser] = useState(false)
   const [browserEvents, setBrowserEvents] = useState<BrowserEvent[]>([])
+  const [browserStatus, setBrowserStatus] = useState<BrowserStatus>({ state: 'idle' })
 
   // Use refs for streaming accumulation to avoid excessive re-renders
   const contentRef = useRef('')
   const reasoningRef = useRef('')
   const toolCallsRef = useRef<string[]>([])
   const browserEventsRef = useRef<BrowserEvent[]>([])
+  const browserStatusRef = useRef<BrowserStatus>({ state: 'idle' })
   const rafPending = useRef(false)
 
   useEffect(() => {
@@ -258,6 +265,15 @@ export default function ChatModal({ agent, onClose }: Props) {
             if (browserEvent) {
               browserEventsRef.current.push(browserEvent)
               setBrowserEvents(prev => [...prev, browserEvent])
+              // Auto-open browser panel on first browser event
+              if (!showBrowser) {
+                setShowBrowser(true)
+              }
+            }
+            const browserStatusEvent = parsed.browser_status as BrowserStatus | undefined
+            if (browserStatusEvent) {
+              browserStatusRef.current = browserStatusEvent
+              setBrowserStatus(browserStatusEvent)
             }
           } catch {
             // ignore malformed JSON
@@ -274,6 +290,7 @@ export default function ChatModal({ agent, onClose }: Props) {
       } else {
         flushToState()
       }
+      setBrowserStatus({ state: 'idle' })
       setLoading(false)
     }
   }
@@ -394,6 +411,18 @@ export default function ChatModal({ agent, onClose }: Props) {
                     {msg.toolCalls.map((tc, i) => (
                       <span key={i} className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">🔧 {tc}</span>
                     ))}
+                  </div>
+                )}
+                {msg.role === 'assistant' && loading && idx === messages.length - 1 && browserStatus.state !== 'idle' && (
+                  <div className="mb-1.5 flex items-center gap-2 text-xs text-blue-600 animate-pulse">
+                    <Globe size={14} className="animate-spin" />
+                    <span>
+                      {browserStatus.state === 'navigating' && browserStatus.url
+                        ? `🌐 正在打开网页: ${browserStatus.url.slice(0, 40)}...`
+                        : browserStatus.state === 'reading'
+                        ? '🌐 正在读取网页内容...'
+                        : '🌐 正在浏览网页...'}
+                    </span>
                   </div>
                 )}
                 <div

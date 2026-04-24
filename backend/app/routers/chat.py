@@ -208,6 +208,12 @@ async def chat_with_agent(agent_id: int, payload: ChatPayload, db: Session = Dep
                         for tc in valid_tool_calls:
                             if tc["name"].startswith("browser_"):
                                 yield f"data: {json.dumps({'browser_event': {'name': tc['name'], 'args': tc.get('args', {})}}, ensure_ascii=False)}\n\n"
+                                # Send browser_status to show active browsing indicator
+                                if tc["name"] == "browser_navigate":
+                                    url = tc.get("args", {}).get("url", "")
+                                    yield f"data: {json.dumps({'browser_status': {'state': 'navigating', 'url': url}}, ensure_ascii=False)}\n\n"
+                                elif tc["name"] == "browser_get_text":
+                                    yield f"data: {json.dumps({'browser_status': {'state': 'reading'}}, ensure_ascii=False)}\n\n"
             else:
                 # No tools: simple LLM streaming (token-level)
                 async for chunk in llm.astream(messages):

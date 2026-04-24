@@ -200,17 +200,22 @@ def get_workspace_path(agent_id: int) -> str:
 def web_search(query: str) -> str:
     """Search the web for information using DuckDuckGo.
 
-    Use this tool for QUICK KEYWORD SEARCHES — it returns a list of
-    search result titles, snippets, and URLs. It does NOT load or
-    read the actual web pages.
+    IMPORTANT: This tool ONLY returns search result titles, snippets,
+    and URLs. It does NOT read the actual web page content.
 
-    Best for: finding relevant pages, getting an overview of a topic,
-    or discovering URLs to explore further.
+    For real-time data (stock prices, weather, news, sports scores,
+    current events, etc.), you MUST use browser_navigate + browser_get_text
+    after web_search to read the full page content. Search snippets alone
+    are often outdated or incomplete for real-time information.
 
-    If you need to read the FULL CONTENT of a specific page,
-    interact with a website (click, fill forms), or get detailed
-    information that search snippets don't provide, use the
-    browser_navigate + browser_get_text tools instead.
+    Best for: finding relevant URLs to explore, discovering multiple
+    sources for the same topic.
+
+    Workflow for real-time queries:
+    1. web_search(query) → get URLs
+    2. browser_navigate(best_url) → load page
+    3. browser_get_text() → read full content
+    4. If data is missing or incomplete, try the NEXT URL from search results
 
     Args:
         query: The search query string.
@@ -376,21 +381,26 @@ def _create_browser_tools(agent_id: int) -> List[BaseTool]:
     def browser_navigate(url: str) -> str:
         """Navigate to a specific URL and load the full page content.
 
-        Use this tool when you need to:
-        - Read the FULL CONTENT of a specific web page (not just search snippets)
-        - Access a page that requires interaction (forms, buttons, links)
-        - Deep-dive into a topic after finding a promising URL via web_search
-        - Verify information by reading the original source
+        Use this tool to READ THE FULL CONTENT of web pages. This is
+        ESSENTIAL for real-time data that search snippets cannot provide:
+        - Stock prices, market data, financial information
+        - Weather forecasts, current conditions
+        - News articles, current events
+        - Sports scores, live updates
+        - Any data that changes frequently
 
-        This tool LOADS the actual page, unlike web_search which only
-        returns search result summaries. After navigation, a screenshot
-        is automatically saved so the user can see the page visually.
+        After navigation, the page waits 1 second for dynamic content
+        (JavaScript-rendered data) to load, then takes a screenshot.
 
-        Typical workflow:
-        1. web_search("topic") to find relevant URLs
-        2. browser_navigate("https://...") to open the most promising page
-        3. browser_get_text() to extract and read the full page content
-        4. browser_click("selector") if you need to interact with the page
+        IMPORTANT: If the first URL doesn't have the data you need,
+        try OTHER URLs from the search results. Do NOT give up after
+        one attempt.
+
+        Typical workflow for real-time queries:
+        1. web_search("topic") → get multiple URLs
+        2. browser_navigate("https://best-url.com") → load page
+        3. browser_get_text() → read full content
+        4. If data is missing: browser_navigate("https://next-url.com") → try again
 
         Args:
             url: The URL to navigate to (must include http:// or https://).
@@ -398,6 +408,8 @@ def _create_browser_tools(agent_id: int) -> List[BaseTool]:
         try:
             page = _get_thread_agent_page(agent_id)
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            # Wait for dynamic content (JavaScript-rendered data) to load
+            page.wait_for_timeout(1000)
             title = page.title()
             _update_browser_state(agent_id, url=page.url, title=title)
             _screenshot_thread_agent_page(agent_id, page)
@@ -464,16 +476,21 @@ def _create_browser_tools(agent_id: int) -> List[BaseTool]:
         """Extract the full visible text content from the current browser page.
 
         Use this AFTER browser_navigate to read the actual page content.
-        This returns the FULL TEXT of the page (up to 12,000 chars),
-        which is much more detailed than web_search snippets.
+        This returns the FULL TEXT of the page (up to 12,000 chars).
 
-        Best for: extracting articles, documentation, product details,
-        or any content that requires reading a specific web page thoroughly.
+        IMPORTANT: If the extracted text does NOT contain the information
+        you need (e.g., stock price, weather data), do NOT give up.
+        Navigate to another URL from the search results and try again.
+
+        Best for: extracting stock prices, market data, news articles,
+        weather forecasts, or any real-time information from web pages.
 
         Returns the main readable text, excluding scripts and styles.
         """
         try:
             page = _get_thread_agent_page(agent_id)
+            # Wait a moment for any remaining dynamic content
+            page.wait_for_timeout(500)
             text = page.evaluate("""() => {
                 const clone = document.body.cloneNode(true);
                 const scripts = clone.querySelectorAll('script, style, nav, header, footer, aside');
@@ -540,12 +557,23 @@ def get_agent_tools(
 _BROWSER_TOOL_GUIDE = (
     "\n\n--- Tool Usage Guide ---\n"
     "You have access to web_search and browser automation tools. "
-    "Use web_search for QUICK KEYWORD SEARCHES to find relevant URLs. "
-    "Use browser_navigate + browser_get_text when you need to READ THE FULL CONTENT "
-    "of a specific web page. The typical research workflow is: "
-    "1) web_search to find URLs, 2) browser_navigate to open the best URL, "
-    "3) browser_get_text to read the full page content. "
-    "Do NOT rely solely on web_search summaries for detailed questions."
+    "Follow these rules STRICTLY:\n\n"
+    "1. When the user asks for REAL-TIME DATA (stock prices, weather, news, "
+    "   sports scores, current events), you MUST use the browser tools. "
+    "   Do NOT say you cannot access real-time data — you CAN via browser_navigate.\n\n"
+    "2. Workflow for real-time queries:\n"
+    "   a) web_search(query) to find multiple relevant URLs\n"
+    "   b) browser_navigate(best_url) to load the page\n"
+    "   c) browser_get_text() to extract the full content\n"
+    "   d) If the data is missing or incomplete, browser_navigate(next_url) "
+    "      to try the NEXT search result. Keep trying until you find the data.\n\n"
+    "3. web_search ONLY returns summaries/snippets. It does NOT contain "
+    "   full page content. For detailed or real-time information, "
+    "   you MUST use browser_navigate + browser_get_text.\n\n"
+    "4. After each browser_navigate, the page waits 1 second for dynamic "
+    "   content to load, then a screenshot is saved for the user to see.\n\n"
+    "5. Do NOT give up if the first URL fails. Use multiple URLs from "
+    "   search results until you find the information."
 )
 
 

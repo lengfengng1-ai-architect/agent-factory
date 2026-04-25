@@ -738,12 +738,46 @@ def _create_browser_tools(agent_id: int) -> List[BaseTool]:
     ]
 
 
+@tool
+def get_current_time() -> str:
+    """Get the current system date and time.
+
+    Use this tool whenever the user asks about:
+    - Current date, time, day of week, month, year
+    - Upcoming holidays, events, or deadlines relative to "now"
+    - Age calculations, duration since/until a specific date
+    - Any query containing words like "today", "now", "current", "今年",
+      "今天", "现在", "最近", " upcoming", "deadline"
+
+    LLMs do NOT have accurate knowledge of the current date/time.
+    Always call this tool first for any time-sensitive query.
+
+    Returns:
+        A string with the current date, time, and timezone in Chinese.
+    """
+    from datetime import datetime, timezone
+    import time
+    tz = time.strftime("%Z")
+    now = datetime.now()
+    weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+    weekday = weekdays[now.weekday()]
+    result = (
+        f"当前系统时间：{now.strftime('%Y年%m月%d日')} {weekday} "
+        f"{now.strftime('%H:%M:%S')}（时区：{tz}）"
+    )
+    logger.info(f"[GET CURRENT TIME] {result}")
+    return result
+
+
 def get_agent_tools(
     agent: models.Agent, override_root_dir: Optional[str] = None
 ) -> List[BaseTool]:
     """Build tool list for an agent based on its config."""
     tools: List[BaseTool] = []
     cfg = agent.config or {}
+
+    # Always inject current time tool — LLMs have no reliable clock
+    tools.append(get_current_time)
 
     if cfg.get("enable_browsing"):
         tools.append(_create_search_tool(agent.id))

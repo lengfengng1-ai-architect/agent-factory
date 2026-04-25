@@ -69,7 +69,8 @@ export default function ChatModal({ agent, onClose }: Props) {
   }, [activeTab, agent.config?.feishu?.enabled])
 
   const { data: historyData, isLoading: historyLoading } = useQuery({
-    queryKey: ['chat_history', agent.id],
+    // Bump key version so old cache (without attachments) is ignored
+    queryKey: ['chat_history', agent.id, 'v2'],
     queryFn: () => chatApi.history(agent.id),
     enabled: !!agent.id && activeTab === 'chat',
     refetchOnWindowFocus: false,

@@ -101,8 +101,10 @@ export default function ChatModal({ agent, onClose }: Props) {
   }, [filesData])
 
   useEffect(() => {
-    // Don't overwrite messages while streaming is in progress
-    if (loading) return
+    // Sync server history into local state only when history data actually changes.
+    // Do NOT depend on `loading` — that causes a race where this effect fires
+    // immediately when streaming ends (loading → false) but historyData still
+    // holds the old snapshot, wiping the locally accumulated message.
     if (historyData?.messages) {
       setMessages(historyData.messages.map(m => ({
         role: m.role as 'user' | 'assistant',
@@ -110,7 +112,7 @@ export default function ChatModal({ agent, onClose }: Props) {
         sources: m.sources,
       })))
     }
-  }, [historyData, loading])
+  }, [historyData])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -319,8 +321,9 @@ export default function ChatModal({ agent, onClose }: Props) {
       }
       setBrowserStatus({ state: 'idle' })
       setLoading(false)
-      // Refresh history to include the newly saved assistant message
-      queryClient.invalidateQueries({ queryKey: ['chat_history', agent.id] })
+      // Clear browser events to stop BrowserPanel polling
+      browserEventsRef.current = []
+      setBrowserEvents([])
     }
   }
 

@@ -180,7 +180,12 @@ def build_messages_with_budget(
         if role == "user":
             messages.append(HumanMessage(content=content))
         elif role == "assistant":
-            messages.append(AIMessage(content=content))
+            # Preserve reasoning_content from Redis history if present
+            kwargs = {}
+            rc = msg.get("reasoning_content")
+            if rc is not None:
+                kwargs["additional_kwargs"] = {"reasoning_content": rc}
+            messages.append(AIMessage(content=content, **kwargs))
 
     # 5. Build user message with file context
     if truncated_files:

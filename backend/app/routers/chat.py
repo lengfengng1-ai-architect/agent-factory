@@ -292,7 +292,28 @@ async def chat_with_agent(agent_id: int, payload: ChatPayload, db: Session = Dep
                 logger.info(f"[CHAT SAVED] agent_id={agent_id} response_len={len(full_response)} reasoning_len={len(reasoning_buffer)}")
 
         except Exception as e:
-            logger.exception(f"[CHAT ERROR] agent_id={agent_id} error={e}")
+            # Log full error details for debugging Kimi 400 and other LLM errors
+            error_type = type(e).__name__
+            error_str = str(e)
+            logger.error(
+                f"[CHAT ERROR] agent_id={agent_id} type={error_type} "
+                f"error={truncate_for_log(error_str, 500)} "
+                f"full_response_len={len(full_response)} "
+                f"reasoning_len={len(reasoning_buffer)} "
+                f"events_processed={event_count if 'event_count' in locals() else 'N/A'}"
+            )
+            # Also log message list summary to diagnose which msg caused the error
+            try:
+                msg_summary = []
+                for i, m in enumerate(messages):
+                    role = getattr(m, 'type', 'unknown')
+                    rc = getattr(m, 'additional_kwargs', {}).get('reasoning_content', 'N/A')
+                    tc = len(getattr(m, 'tool_calls', []) or [])
+                    msg_summary.append(f"[{i}]{role}(rc={rc},tc={tc})")
+                logger.error(f"[CHAT ERROR CONTEXT] messages={' '.join(msg_summary)}")
+            except Exception:
+                pass
+            logger.exception(f"[CHAT ERROR STACK] agent_id={agent_id}")
             error_msg = f"[Error: {e}]"
             yield f"data: {json.dumps({'error': error_msg}, ensure_ascii=False)}\n\n"
 

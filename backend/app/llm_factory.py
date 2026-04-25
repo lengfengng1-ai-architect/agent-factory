@@ -65,9 +65,11 @@ class ChatKimi(ChatOpenAI):
         # Kimi API requires reasoning_content on ALL assistant messages when
         # thinking is enabled. Fallback to empty string for any assistant msg
         # that still doesn't have it (e.g., history messages without rc).
+        # Also guard against None values which count as "missing" for Kimi.
         for msg in payload.get("messages", []):
-            if msg.get("role") == "assistant" and "reasoning_content" not in msg:
-                msg["reasoning_content"] = ""
+            if msg.get("role") == "assistant":
+                if "reasoning_content" not in msg or msg.get("reasoning_content") is None:
+                    msg["reasoning_content"] = ""
 
         # Log request payload for debugging
         model_name = payload.get("model", self.model_name)
@@ -83,8 +85,17 @@ class ChatKimi(ChatOpenAI):
             role = msg.get("role", "unknown")
             content_preview = truncate_for_log(msg.get("content", ""), 300)
             tool_calls = msg.get("tool_calls", [])
-            rc = msg.get("reasoning_content", "")
-            rc_info = f" rc={truncate_for_log(rc, 100)}" if rc else ""
+            # Always log reasoning_content status for assistant msgs to aid debugging
+            rc = msg.get("reasoning_content")
+            if role == "assistant":
+                if rc is None:
+                    rc_info = " rc=MISSING"
+                elif rc == "":
+                    rc_info = " rc=(empty)"
+                else:
+                    rc_info = f" rc={truncate_for_log(rc, 100)}"
+            else:
+                rc_info = ""
             tc_info = f" tool_calls={len(tool_calls)}" if tool_calls else ""
             logger.debug(f"  msg[{i}] {role}: {content_preview}{rc_info}{tc_info}")
 
@@ -114,6 +125,10 @@ class ChatKimi(ChatOpenAI):
                 # Also check top-level reasoning field used by some providers
                 elif (rc := msg_dict.get("reasoning")) is not None:
                     gen.message.additional_kwargs["reasoning_content"] = rc
+                # Ensure reasoning_content always exists (even as empty string)
+                # so downstream serialization doesn't drop the key.
+                if "reasoning_content" not in gen.message.additional_kwargs:
+                    gen.message.additional_kwargs["reasoning_content"] = ""
 
         # Log response for debugging
         for idx, gen in enumerate(result.generations):

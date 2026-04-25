@@ -97,9 +97,14 @@ export default function ChatModal({ agent, onClose }: Props) {
     enabled: !!agent.id && showSummaryPanel,
   })
 
+  const hasSyncedFiles = useRef(false)
   useEffect(() => {
-    if (filesData?.files) {
+    // Only sync server files once on initial mount. After that, files state
+    // is managed locally (upload / send / clear). This prevents already-sent
+    // images from reappearing in the preview when reopening the chat.
+    if (filesData?.files && !hasSyncedFiles.current) {
       setFiles(filesData.files)
+      hasSyncedFiles.current = true
     }
   }, [filesData])
 
@@ -115,6 +120,7 @@ export default function ChatModal({ agent, onClose }: Props) {
           role: m.role as 'user' | 'assistant',
           content: m.content,
           sources: m.sources,
+          fileIds: m.attachments?.map((a: any) => a.file_id) || [],
         }))
       })
     }

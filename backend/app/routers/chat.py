@@ -198,6 +198,7 @@ async def chat_with_agent(agent_id: int, payload: ChatPayload, db: Session = Dep
                 async for event in agent_runnable.astream_events(
                     {"messages": messages},
                     version="v2",
+                    config={"recursion_limit": 50},
                 ):
                     event_count += 1
                     event_type = event.get("event")

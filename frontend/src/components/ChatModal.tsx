@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bot, User, Send, X, FileText, BookOpen, MessageCircle, Copy, Check, Globe } from 'lucide-react'
 import type { Agent, ChatFile, Source } from '../types'
 import { chatApi, fileApi, summaryApi, feishuApi } from '../api/client'
@@ -51,6 +51,8 @@ export default function ChatModal({ agent, onClose }: Props) {
   const [browserEvents, setBrowserEvents] = useState<BrowserEvent[]>([])
   const [browserStatus, setBrowserStatus] = useState<BrowserStatus>({ state: 'idle' })
 
+  const queryClient = useQueryClient()
+
   // Use refs for streaming accumulation to avoid excessive re-renders
   const contentRef = useRef('')
   const reasoningRef = useRef('')
@@ -69,6 +71,8 @@ export default function ChatModal({ agent, onClose }: Props) {
     queryKey: ['chat_history', agent.id],
     queryFn: () => chatApi.history(agent.id),
     enabled: !!agent.id && activeTab === 'chat',
+    refetchOnWindowFocus: false,
+    staleTime: Infinity,
   })
 
   const { data: feishuHistoryData, isLoading: feishuHistoryLoading } = useQuery({
@@ -97,6 +101,8 @@ export default function ChatModal({ agent, onClose }: Props) {
   }, [filesData])
 
   useEffect(() => {
+    // Don't overwrite messages while streaming is in progress
+    if (loading) return
     if (historyData?.messages) {
       setMessages(historyData.messages.map(m => ({
         role: m.role as 'user' | 'assistant',
@@ -104,7 +110,7 @@ export default function ChatModal({ agent, onClose }: Props) {
         sources: m.sources,
       })))
     }
-  }, [historyData])
+  }, [historyData, loading])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -313,6 +319,8 @@ export default function ChatModal({ agent, onClose }: Props) {
       }
       setBrowserStatus({ state: 'idle' })
       setLoading(false)
+      // Refresh history to include the newly saved assistant message
+      queryClient.invalidateQueries({ queryKey: ['chat_history', agent.id] })
     }
   }
 

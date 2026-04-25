@@ -183,6 +183,7 @@ export default function ChatModal({ agent, onClose }: Props) {
     const activeFileIds = files.map(f => f.id)
 
     setInput('')
+    setFiles([])  // Clear file previews after sending
     setMessages(prev => [...prev, { role: 'user', content: text || '[图片]', fileIds: activeFileIds }])
     setLoading(true)
 

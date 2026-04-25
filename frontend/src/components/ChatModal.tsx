@@ -101,16 +101,19 @@ export default function ChatModal({ agent, onClose }: Props) {
   }, [filesData])
 
   useEffect(() => {
-    // Sync server history into local state only when history data actually changes.
-    // Do NOT depend on `loading` — that causes a race where this effect fires
-    // immediately when streaming ends (loading → false) but historyData still
-    // holds the old snapshot, wiping the locally accumulated message.
+    // Sync server history into local state only when history data actually changes
+    // AND local messages are empty. This prevents:
+    // 1. Race: historyData arrives during streaming → wipes accumulated content
+    // 2. Double-sync: React Query cache hit on mount doesn't re-trigger effect
     if (historyData?.messages) {
-      setMessages(historyData.messages.map(m => ({
-        role: m.role as 'user' | 'assistant',
-        content: m.content,
-        sources: m.sources,
-      })))
+      setMessages(prev => {
+        if (prev.length > 0) return prev
+        return historyData.messages.map(m => ({
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+          sources: m.sources,
+        }))
+      })
     }
   }, [historyData])
 

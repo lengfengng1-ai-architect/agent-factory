@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { Bot, User, Send, X, FileText, BookOpen, MessageCircle, Copy, Check, Globe } from 'lucide-react'
 import type { Agent, ChatFile, Source } from '../types'
 import { chatApi, fileApi, summaryApi, feishuApi } from '../api/client'
@@ -51,8 +51,6 @@ export default function ChatModal({ agent, onClose }: Props) {
   const [showBrowser, setShowBrowser] = useState(false)
   const [browserEvents, setBrowserEvents] = useState<BrowserEvent[]>([])
   const [browserStatus, setBrowserStatus] = useState<BrowserStatus>({ state: 'idle' })
-
-  const queryClient = useQueryClient()
 
   // Use refs for streaming accumulation to avoid excessive re-renders
   const contentRef = useRef('')

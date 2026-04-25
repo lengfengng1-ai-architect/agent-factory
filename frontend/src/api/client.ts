@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Agent, Group, Task, TaskStatus, Provider, ProviderModel, ChatFile, FileSummary, WorkflowStep, Source, Message } from '../types';
+import type { Agent, Group, Task, TaskStatus, Provider, ProviderModel, ChatFile, FileSummary, WorkflowStep, Message } from '../types';
 
 const api = axios.create({
   baseURL: '/api',

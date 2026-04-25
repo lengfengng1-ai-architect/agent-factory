@@ -16,7 +16,7 @@ from app.llm_factory import create_llm
 from app.common import get_agent_provider
 from app.logger import get_logger, truncate_for_log
 from langchain.agents import create_agent
-from langchain.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
+from langchain.messages import HumanMessage, SystemMessage, AIMessage, AIMessageChunk, ToolMessage
 from pydantic import BaseModel, Field
 import json
 import os

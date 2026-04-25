@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app import models
 from app import redis_client
-from app.file_utils import extract_text, format_files_for_prompt
+from app.file_utils import extract_text, format_files_for_prompt, is_image_file, image_to_base64
 from app.context_manager import build_messages_with_budget, get_model_context_window
 from app.summarizer import generate_summary, maybe_use_summary, get_summaries_for_group
 from app.llm_factory import create_llm
@@ -51,15 +51,20 @@ async def _load_group_file_contents(
     file_ids: list[str],
     file_mode: str,
     db: Session,
-) -> list[dict]:
-    """Load file contents for a group chat, generating summaries if needed."""
+) -> tuple[list[dict], list[dict]]:
+    """Load file contents for a group chat, generating summaries if needed.
+
+    Returns:
+        (file_contents, image_attachments)
+    """
     if not file_ids:
-        return []
+        return [], []
 
     uploaded_files = redis_client.get_group_chat_files(group_id)
     file_id_to_meta = {f.get("id"): f for f in uploaded_files}
 
     file_contents = []
+    image_attachments = []
     group = db.query(models.Group).filter(models.Group.id == group_id).first()
     fallback_agent = None
     fallback_provider = None
@@ -84,6 +89,15 @@ async def _load_group_file_contents(
         if not path:
             continue
 
+        # Image files → multimodal
+        if is_image_file(path):
+            try:
+                b64, mime = image_to_base64(path)
+                image_attachments.append({"file_id": fid, "name": name, "base64": b64, "mime_type": mime})
+            except Exception:
+                pass
+            continue
+
         result = maybe_use_summary(path, name, file_mode)
         content = result.get("content", "")
         is_summary = result.get("is_summary", False)
@@ -102,7 +116,7 @@ async def _load_group_file_contents(
 
         file_contents.append({"name": name, "content": content, "is_summary": is_summary})
 
-    return file_contents
+    return file_contents, image_attachments
 
 
 @router.get("/{group_id}/chat/history")
@@ -133,7 +147,7 @@ async def group_chat(group_id: int, payload: GroupChatPayload, db: Session = Dep
     file_ids = payload.files or []
     file_mode = payload.file_mode or "auto"
 
-    file_contents = await _load_group_file_contents(group_id, file_ids, file_mode, db)
+    file_contents, image_attachments = await _load_group_file_contents(group_id, file_ids, file_mode, db)
 
     # Load historical summaries for this group (up to 5 most recent)
     historical_summaries = get_summaries_for_group(group.id)
@@ -145,12 +159,14 @@ async def group_chat(group_id: int, payload: GroupChatPayload, db: Session = Dep
                 "is_summary": True,
             })
 
+    attachments = [{"type": "image", "file_id": img["file_id"], "name": img["name"]} for img in image_attachments]
+
     if chat_type == "brainstorm":
-        return _brainstorm_chat(group, user_message, db, file_contents)
+        return _brainstorm_chat(group, user_message, db, file_contents, image_attachments, attachments)
     elif chat_type == "debate":
-        return _debate_chat(group, user_message, db, file_contents)
+        return _debate_chat(group, user_message, db, file_contents, image_attachments, attachments)
     elif chat_type == "moderator":
-        return _moderator_chat(group, user_message, db, file_contents)
+        return _moderator_chat(group, user_message, db, file_contents, image_attachments, attachments)
     else:
         raise HTTPException(status_code=400, detail="Parallel mode should use individual agent chat API")
 
@@ -159,8 +175,8 @@ async def group_chat(group_id: int, payload: GroupChatPayload, db: Session = Dep
 # Brainstorm — parallel execution with asyncio.gather
 # ──────────────────────────────────────────────────────────────
 
-def _brainstorm_chat(group, user_message, db, file_contents: list[dict] = None):
-    redis_client.append_group_chat_message(group.id, "user", 0, "User", user_message)
+def _brainstorm_chat(group, user_message, db, file_contents: list[dict] = None, image_attachments: list[dict] = None, attachments: list[dict] = None):
+    redis_client.append_group_chat_message(group.id, "user", 0, "User", user_message, attachments=attachments or None)
 
     agent_ids = group.agent_ids or []
     if not agent_ids:
@@ -190,6 +206,7 @@ def _brainstorm_chat(group, user_message, db, file_contents: list[dict] = None):
                 user_message=user_message,
                 file_contents=file_contents or [],
                 context_window=context_window,
+                image_attachments=image_attachments or None,
             )
             llm = create_llm(agent, provider, streaming=False)
             tools = get_agent_tools(agent, override_root_dir=group.file_root_dir or None)
@@ -220,7 +237,7 @@ def _brainstorm_chat(group, user_message, db, file_contents: list[dict] = None):
 # Debate — sequential rounds with structured output summary
 # ──────────────────────────────────────────────────────────────
 
-def _build_debate_messages(agent: models.Agent, history: list, side: str, round_num: int, file_contents: list[dict] = None):
+def _build_debate_messages(agent: models.Agent, history: list, side: str, round_num: int, file_contents: list[dict] = None, image_attachments: list[dict] = None):
     system_prompt = agent.system_prompt or "You are a helpful assistant."
     debate_context = f"\n\n【辩论规则】你正在参与一场辩论，你的阵营是【{side}】。"
     if round_num > 1:
@@ -245,7 +262,14 @@ def _build_debate_messages(agent: models.Agent, history: list, side: str, round_
 
     if history and history[-1]["role"] == "user":
         content = _inject_files_into_user_message(history[-1]["content"], file_contents or [])
-        messages.append(HumanMessage(content=content))
+        if image_attachments:
+            multimodal = [{"type": "text", "text": content}]
+            for img in image_attachments:
+                url = f"data:{img['mime_type']};base64,{img['base64']}"
+                multimodal.append({"type": "image_url", "image_url": {"url": url}})
+            messages.append(HumanMessage(content=multimodal))
+        else:
+            messages.append(HumanMessage(content=content))
 
     return messages
 
@@ -268,7 +292,7 @@ def _build_summary_prompt(history: list) -> str:
     return prompt
 
 
-def _debate_chat(group, user_message, db, file_contents: list[dict] = None):
+def _debate_chat(group, user_message, db, file_contents: list[dict] = None, image_attachments: list[dict] = None, attachments: list[dict] = None):
     agent_ids = group.agent_ids or []
     if len(agent_ids) < 2:
         raise HTTPException(status_code=400, detail="Debate mode requires at least 2 agents")
@@ -288,7 +312,7 @@ def _debate_chat(group, user_message, db, file_contents: list[dict] = None):
             status_code=400, detail="Debate mode requires at least one agent on each side"
         )
 
-    redis_client.append_group_chat_message(group.id, "user", 0, "User", user_message)
+    redis_client.append_group_chat_message(group.id, "user", 0, "User", user_message, attachments=attachments or None)
 
     async def stream():
         history = redis_client.get_group_chat_history(group.id)
@@ -307,7 +331,7 @@ def _debate_chat(group, user_message, db, file_contents: list[dict] = None):
                 except ValueError:
                     continue
 
-                messages = _build_debate_messages(agent, history, side, r + 1, file_contents)
+                messages = _build_debate_messages(agent, history, side, r + 1, file_contents, image_attachments)
                 llm = create_llm(agent, provider, streaming=False)
                 tools = get_agent_tools(agent, override_root_dir=group.file_root_dir or None)
                 content = await run_llm_with_tools(llm, messages, tools)
@@ -361,7 +385,7 @@ def _debate_chat(group, user_message, db, file_contents: list[dict] = None):
 # Moderator — experts + summary
 # ──────────────────────────────────────────────────────────────
 
-def _build_moderator_expert_messages(agent: models.Agent, user_message: str, file_contents: list[dict] = None):
+def _build_moderator_expert_messages(agent: models.Agent, user_message: str, file_contents: list[dict] = None, image_attachments: list[dict] = None):
     system_prompt = agent.system_prompt or "You are a helpful assistant."
     expert_context = (
         "\n\n【任务说明】你是一名领域专家。主持人向你提出了一个问题/议题，"
@@ -370,6 +394,15 @@ def _build_moderator_expert_messages(agent: models.Agent, user_message: str, fil
         "回答应当条理清晰，有逻辑性。"
     )
     content = _inject_files_into_user_message(user_message, file_contents or [])
+    if image_attachments:
+        multimodal = [{"type": "text", "text": content}]
+        for img in image_attachments:
+            url = f"data:{img['mime_type']};base64,{img['base64']}"
+            multimodal.append({"type": "image_url", "image_url": {"url": url}})
+        return [
+            SystemMessage(content=system_prompt + expert_context),
+            HumanMessage(content=multimodal),
+        ]
     return [
         SystemMessage(content=system_prompt + expert_context),
         HumanMessage(content=content),
@@ -393,7 +426,7 @@ def _build_moderator_summary_prompt(user_message: str, expert_responses: list) -
     return prompt
 
 
-def _moderator_chat(group, user_message, db, file_contents: list[dict] = None):
+def _moderator_chat(group, user_message, db, file_contents: list[dict] = None, image_attachments: list[dict] = None, attachments: list[dict] = None):
     agent_ids = group.agent_ids or []
     if not agent_ids:
         raise HTTPException(status_code=400, detail="Group has no agents")
@@ -405,7 +438,7 @@ def _moderator_chat(group, user_message, db, file_contents: list[dict] = None):
 
     expert_ids = [aid for aid in agent_ids if aid != moderator_id]
 
-    redis_client.append_group_chat_message(group.id, "user", 0, "User", user_message)
+    redis_client.append_group_chat_message(group.id, "user", 0, "User", user_message, attachments=attachments or None)
 
     async def stream():
         # Phase 1: Experts respond (parallel!)
@@ -420,7 +453,7 @@ def _moderator_chat(group, user_message, db, file_contents: list[dict] = None):
 
             llm = create_llm(agent, provider, streaming=False)
             tools = get_agent_tools(agent, override_root_dir=group.file_root_dir or None)
-            messages = _build_moderator_expert_messages(agent, user_message, file_contents)
+            messages = _build_moderator_expert_messages(agent, user_message, file_contents, image_attachments)
 
             content = await run_llm_with_tools(llm, messages, tools)
             return {"agent": agent, "content": content}

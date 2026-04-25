@@ -8,7 +8,7 @@ from app.redis_client import (
     get_chat_history, append_chat_message, append_group_chat_message,
     get_chat_files, get_chat_sources,
 )
-from app.file_utils import extract_text
+from app.file_utils import extract_text, is_image_file, image_to_base64
 from app.context_manager import build_messages_with_budget, get_model_context_window
 from app.summarizer import generate_summary, maybe_use_summary, get_summaries_for_agent
 from app.tools import get_agent_tools, _has_browser_tools, _BROWSER_TOOL_GUIDE
@@ -57,17 +57,12 @@ async def chat_with_agent(agent_id: int, payload: ChatPayload, db: Session = Dep
 
     system_prompt = agent.system_prompt or "You are a helpful assistant."
 
-    # Save user message
-    append_chat_message(agent_id, "user", user_message)
-    group_id = payload.group_id
-    if group_id:
-        append_group_chat_message(group_id, "user", 0, "User", user_message)
-
     # Build messages with history and file attachments
     history = get_chat_history(agent_id)
     file_ids = payload.files or []
     file_mode = payload.file_mode or "auto"
     file_contents = []
+    image_attachments = []
 
     if file_ids:
         uploaded_files = get_chat_files(agent_id)
@@ -80,6 +75,15 @@ async def chat_with_agent(agent_id: int, payload: ChatPayload, db: Session = Dep
             path = meta.get("path", "")
             name = meta.get("name", "unknown")
             if not path or not os.path.exists(path):
+                continue
+
+            # Image files → multimodal
+            if is_image_file(path):
+                try:
+                    b64, mime = image_to_base64(path)
+                    image_attachments.append({"file_id": fid, "name": name, "base64": b64, "mime_type": mime})
+                except Exception as e:
+                    logger.warning(f"[CHAT IMAGE] Failed to process image {name}: {e}")
                 continue
 
             result = maybe_use_summary(path, name, file_mode)
@@ -111,6 +115,7 @@ async def chat_with_agent(agent_id: int, payload: ChatPayload, db: Session = Dep
             })
 
     # Determine file root directory
+    group_id = payload.group_id
     override_root = None
     if group_id:
         group = db.query(models.Group).filter(models.Group.id == group_id).first()
@@ -129,7 +134,14 @@ async def chat_with_agent(agent_id: int, payload: ChatPayload, db: Session = Dep
         file_contents=file_contents,
         context_window=context_window,
         system_prompt=system_prompt,
+        image_attachments=image_attachments or None,
     )
+
+    # Save user message with attachments metadata
+    attachments = [{"type": "image", "file_id": img["file_id"], "name": img["name"]} for img in image_attachments]
+    append_chat_message(agent_id, "user", user_message, attachments=attachments or None)
+    if group_id:
+        append_group_chat_message(group_id, "user", 0, "User", user_message, attachments=attachments or None)
 
     async def stream_response():
         """Stream agent response directly using agent.astream().

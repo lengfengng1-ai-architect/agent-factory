@@ -13,6 +13,7 @@ interface Message {
   reasoning?: string
   toolCalls?: string[]
   sources?: Source[]
+  attachments?: { type: string; file_id: string; name: string }[]
 }
 
 interface BrowserEvent {
@@ -330,6 +331,38 @@ export default function ChatModal({ agent, onClose }: Props) {
     }
   }
 
+  const handlePaste = async (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const items = e.clipboardData.items
+    const imageItems: DataTransferItem[] = []
+
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith('image/')) {
+        imageItems.push(items[i])
+      }
+    }
+
+    if (imageItems.length > 0) {
+      e.preventDefault()
+      setUploading(true)
+      try {
+        const files: File[] = []
+        for (const item of imageItems) {
+          const blob = item.getAsFile()
+          if (blob) {
+            files.push(blob)
+          }
+        }
+        if (files.length > 0) {
+          const dt = new DataTransfer()
+          files.forEach(f => dt.items.add(f))
+          await handleUpload(dt.files)
+        }
+      } finally {
+        setUploading(false)
+      }
+    }
+  }
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -471,6 +504,18 @@ export default function ChatModal({ agent, onClose }: Props) {
                     <span className="inline-block w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
                   ) : null)}
                 </div>
+                {msg.role === 'user' && msg.fileIds && msg.fileIds.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1 justify-end">
+                    {msg.fileIds.map((fid) => (
+                      <img
+                        key={fid}
+                        src={`/api/agents/${agent.id}/files/${fid}`}
+                        alt="attachment"
+                        className="w-16 h-16 object-cover rounded-lg border border-gray-200"
+                      />
+                    ))}
+                  </div>
+                )}
                 {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 && (
                   <div className="mt-1.5">
                     <details className="text-xs">
@@ -608,6 +653,7 @@ export default function ChatModal({ agent, onClose }: Props) {
               onModeChange={handleModeChange}
               disabled={loading}
               uploading={uploading}
+              agentId={agent.id}
             />
             <div className="px-5 py-4 border-t border-gray-200">
               <div className="flex gap-2">
@@ -618,6 +664,7 @@ export default function ChatModal({ agent, onClose }: Props) {
                   value={input}
                   onChange={e => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
+                  onPaste={handlePaste}
                   disabled={loading}
                 />
                 <button

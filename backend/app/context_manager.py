@@ -141,6 +141,7 @@ def build_messages_with_budget(
     file_contents: List[Dict[str, str]],
     context_window: int,
     system_prompt: str = None,
+    image_attachments: List[Dict[str, str]] = None,
 ) -> List[SystemMessage | HumanMessage | AIMessage]:
     """Build the final message list for LLM invocation within context budget.
 
@@ -187,13 +188,21 @@ def build_messages_with_budget(
                 kwargs["additional_kwargs"] = {"reasoning_content": rc}
             messages.append(AIMessage(content=content, **kwargs))
 
-    # 5. Build user message with file context
+    # 5. Build user message with file context and image attachments
     if truncated_files:
         files_prompt = format_files_for_prompt(truncated_files)
-        combined = f"{files_prompt}\n用户问题：{user_message}"
-        messages.append(HumanMessage(content=combined))
+        user_message_text = f"{files_prompt}\n用户问题：{user_message}"
     else:
-        messages.append(HumanMessage(content=user_message))
+        user_message_text = user_message
+
+    if image_attachments:
+        content = [{"type": "text", "text": user_message_text}]
+        for img in image_attachments:
+            url = f"data:{img['mime_type']};base64,{img['base64']}"
+            content.append({"type": "image_url", "image_url": {"url": url}})
+        messages.append(HumanMessage(content=content))
+    else:
+        messages.append(HumanMessage(content=user_message_text))
 
     return messages
 

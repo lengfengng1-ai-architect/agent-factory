@@ -4,7 +4,7 @@ import os
 import uuid
 import shutil
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from sqlalchemy.orm import Session
 from typing import List
 from app.database import get_db, workspace_dir
@@ -224,6 +224,31 @@ def read_artifact(path: str):
         return {"content": content, "path": abs_path}
     except UnicodeDecodeError:
         return {"content": "[Binary file]", "path": abs_path}
+
+
+@router.get("/agents/{agent_id}/files/{file_id}")
+def serve_chat_file(agent_id: int, file_id: str, db: Session = Depends(get_db)):
+    """Serve an uploaded chat file for preview/download."""
+    agent = db.query(models.Agent).filter(models.Agent.id == agent_id).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    files = redis_client.get_chat_files(agent_id)
+    target = None
+    for f in files:
+        if f.get("id") == file_id:
+            target = f
+            break
+
+    if not target:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    path = target.get("path", "")
+    if not path or not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="File not found on disk")
+
+    content_type = target.get("type") or "application/octet-stream"
+    return FileResponse(path, media_type=content_type, filename=target.get("name"))
 
 
 @router.delete("/groups/{group_id}/files/{file_id}")

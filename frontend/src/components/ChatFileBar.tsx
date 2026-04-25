@@ -12,6 +12,7 @@ interface Props {
   onModeChange: (mode: FileMode) => void
   disabled?: boolean
   uploading?: boolean
+  agentId?: number
 }
 
 const MODE_LABELS: Record<FileMode, string> = {
@@ -34,6 +35,7 @@ export default function ChatFileBar({
   onModeChange,
   disabled,
   uploading,
+  agentId,
 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [showModeMenu, setShowModeMenu] = useState(false)
@@ -74,7 +76,15 @@ export default function ChatFileBar({
               className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-md px-2 py-1 text-xs group"
               title={`${file.name} (${formatSize(file.size)})`}
             >
-              {getFileIcon(file.name)}
+              {agentId && file.type.startsWith('image/') ? (
+                <img
+                  src={`/api/agents/${agentId}/files/${file.id}`}
+                  alt={file.name}
+                  className="w-10 h-10 object-cover rounded"
+                />
+              ) : (
+                getFileIcon(file.name)
+              )}
               <span className="max-w-[120px] truncate text-gray-700">{file.name}</span>
               <span className="text-gray-400">{formatSize(file.size)}</span>
               <button

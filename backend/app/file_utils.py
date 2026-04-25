@@ -5,6 +5,38 @@ import hashlib
 from pathlib import Path
 
 
+# Image MIME types supported for multimodal
+_IMAGE_MIME_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+}
+
+
+def is_image_file(file_path: str) -> bool:
+    """Check if a file is an image based on extension."""
+    ext = os.path.splitext(file_path)[1].lower()
+    return ext in _IMAGE_MIME_TYPES
+
+
+def image_to_base64(file_path: str) -> tuple[str, str]:
+    """Read an image file and return (base64_string, mime_type).
+
+    Returns:
+        (base64_data, mime_type) where base64_data is the raw base64 string
+        without the data URI prefix.
+    """
+    ext = os.path.splitext(file_path)[1].lower()
+    mime_type = _IMAGE_MIME_TYPES.get(ext, "image/png")
+    with open(file_path, "rb") as f:
+        data = f.read()
+    import base64
+    return base64.b64encode(data).decode("utf-8"), mime_type
+
+
 # File extensions that are treated as plain text
 TEXT_EXTENSIONS = {
     ".txt", ".md", ".markdown", ".json", ".csv", ".tsv",

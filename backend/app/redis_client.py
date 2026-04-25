@@ -28,7 +28,7 @@ def get_chat_history(agent_id: int) -> List[Dict[str, Any]]:
     return [json.loads(item) for item in items]
 
 
-def append_chat_message(agent_id: int, role: str, content: str, sources: List[Dict[str, Any]] = None):
+def append_chat_message(agent_id: int, role: str, content: str, sources: List[Dict[str, Any]] = None, attachments: List[Dict[str, Any]] = None):
     """Append a message to agent's chat history in Redis.
 
     Backward compatible: existing messages without 'sources' still work.
@@ -41,6 +41,8 @@ def append_chat_message(agent_id: int, role: str, content: str, sources: List[Di
     }
     if sources:
         message["sources"] = sources
+    if attachments:
+        message["attachments"] = attachments
     r.rpush(key, json.dumps(message, ensure_ascii=False))
     r.ltrim(key, -MAX_HISTORY, -1)
 
@@ -106,7 +108,7 @@ def get_group_chat_history(group_id: int) -> List[Dict[str, Any]]:
     return [json.loads(item) for item in items]
 
 
-def append_group_chat_message(group_id: int, role: str, agent_id: int, agent_name: str, content: str, sources: List[Dict[str, Any]] = None):
+def append_group_chat_message(group_id: int, role: str, agent_id: int, agent_name: str, content: str, sources: List[Dict[str, Any]] = None, attachments: List[Dict[str, Any]] = None):
     """Append a message to group chat history in Redis."""
     key = f"group_chat_history:{group_id}"
     message = {
@@ -118,6 +120,8 @@ def append_group_chat_message(group_id: int, role: str, agent_id: int, agent_nam
     }
     if sources:
         message["sources"] = sources
+    if attachments:
+        message["attachments"] = attachments
     r.rpush(key, json.dumps(message, ensure_ascii=False))
     r.ltrim(key, -MAX_GROUP_HISTORY, -1)
 

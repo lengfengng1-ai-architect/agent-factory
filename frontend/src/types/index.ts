@@ -91,7 +91,25 @@ export interface ChatFile {
   name: string;
   size: number;
   type: string;
-  timestamp: string;
+  url?: string;
+  created_at?: string;
+}
+
+export interface ChatAttachment {
+  type: 'image' | 'file';
+  file_id: string;
+  name: string;
+  url?: string;
+}
+
+export interface Message {
+  role: string;
+  content: string;
+  timestamp?: string;
+  agent_id?: number;
+  agent_name?: string;
+  sources?: Source[];
+  attachments?: ChatAttachment[];
 }
 
 export interface Source {

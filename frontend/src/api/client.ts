@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Agent, Group, Task, TaskStatus, Provider, ProviderModel, ChatFile, FileSummary, WorkflowStep, Source } from '../types';
+import type { Agent, Group, Task, TaskStatus, Provider, ProviderModel, ChatFile, FileSummary, WorkflowStep, Source, Message } from '../types';
 
 const api = axios.create({
   baseURL: '/api',
@@ -65,7 +65,7 @@ export const providerApi = {
 
 export const chatApi = {
   history: (agentId: number) =>
-    api.get<{ messages: { role: string; content: string; timestamp: string; sources?: Source[] }[] }>(`/agents/${agentId}/chat/history`).then(r => r.data),
+    api.get<{ messages: Message[] }>(`/agents/${agentId}/chat/history`).then(r => r.data),
 };
 
 export const feishuApi = {
@@ -81,7 +81,7 @@ export const feishuApi = {
 
 export const groupChatApi = {
   history: (groupId: number) =>
-    api.get<{ messages: { role: string; agent_id: number; agent_name: string; content: string; timestamp: string }[] }>(`/groups/${groupId}/chat/history`).then(r => r.data),
+    api.get<{ messages: Message[] }>(`/groups/${groupId}/chat/history`).then(r => r.data),
 };
 
 export const fileApi = {

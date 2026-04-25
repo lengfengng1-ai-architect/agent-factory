@@ -55,6 +55,36 @@ def _build_moderator_summary_prompt(task_description: str, expert_responses: lis
     return prompt
 
 
+async def _run_single_expert(agent_id: int, task_prompt: str, file_root_dir: Optional[str], db: Session):
+    """Execute a single expert agent. Isolated so it can run in parallel."""
+    agent = db.query(models.Agent).filter(models.Agent.id == agent_id).first()
+    if not agent:
+        return None
+    try:
+        provider = get_agent_provider(db, agent)
+    except ValueError:
+        return None
+
+    llm = create_llm(agent, provider)
+    tools = get_agent_tools(agent, override_root_dir=file_root_dir)
+    expert_context = (
+        "\n\n【任务说明】你是一名领域专家。主持人向你提出了一个问题/议题，"
+        "请你基于专业知识给出结构化、有深度的回答。"
+    )
+    messages = [
+        SystemMessage(content=(agent.system_prompt or "You are a helpful assistant.") + expert_context),
+        HumanMessage(content=task_prompt),
+    ]
+
+    try:
+        content = await run_llm_with_tools(llm, messages, tools)
+        logger.info(f"[GROUP EXPERT] {agent.name} responded ({len(content)} chars)")
+        return {"agent_name": agent.name, "response": content}
+    except Exception as e:
+        logger.exception(f"[GROUP EXPERT ERROR] {agent.name}: {e}")
+        return {"agent_name": agent.name, "response": f"Error: {e}"}
+
+
 async def _execute_with_group(task: models.Task, db: Session):
     group = db.query(models.Group).filter(models.Group.id == task.assignee_id).first()
     if not group:
@@ -72,33 +102,15 @@ async def _execute_with_group(task: models.Task, db: Session):
     expert_ids = [aid for aid in agent_ids if aid != moderator_id]
     task_prompt = task.description or task.title
 
-    # Phase 1: Experts respond
-    expert_responses = []
-    for agent_id in expert_ids:
-        agent = db.query(models.Agent).filter(models.Agent.id == agent_id).first()
-        if not agent:
-            continue
-        try:
-            provider = get_agent_provider(db, agent)
-        except ValueError:
-            continue
-
-        llm = create_llm(agent, provider)
-        tools = get_agent_tools(agent, override_root_dir=task.file_root_dir or None)
-        expert_context = (
-            "\n\n【任务说明】你是一名领域专家。主持人向你提出了一个问题/议题，"
-            "请你基于专业知识给出结构化、有深度的回答。"
-        )
-        messages = [
-            SystemMessage(content=(agent.system_prompt or "You are a helpful assistant.") + expert_context),
-            HumanMessage(content=task_prompt),
-        ]
-
-        try:
-            content = await run_llm_with_tools(llm, messages, tools)
-            expert_responses.append({"agent_name": agent.name, "response": content})
-        except Exception as e:
-            expert_responses.append({"agent_name": agent.name, "response": f"Error: {e}"})
+    # Phase 1: Experts respond IN PARALLEL
+    logger.info(f"[GROUP START] {len(expert_ids)} experts, prompt={task_prompt[:80]}...")
+    expert_tasks = [
+        _run_single_expert(aid, task_prompt, task.file_root_dir or None, db)
+        for aid in expert_ids
+    ]
+    expert_results = await asyncio.gather(*expert_tasks)
+    expert_responses = [r for r in expert_results if r is not None]
+    logger.info(f"[GROUP EXPERTS DONE] {len(expert_responses)} responses collected")
 
     # Phase 2: Moderator summarizes
     moderator = db.query(models.Agent).filter(models.Agent.id == moderator_id).first()
@@ -117,8 +129,10 @@ async def _execute_with_group(task: models.Task, db: Session):
             ]
             try:
                 content = await run_llm_with_tools(llm, messages, tools)
+                logger.info(f"[GROUP MODERATOR] {moderator.name} summarized ({len(content)} chars)")
                 return content
             except Exception as e:
+                logger.exception(f"[GROUP MODERATOR ERROR] {moderator.name}: {e}")
                 return f"Error in summary: {e}\n\n" + "\n\n".join(
                     [f"{er['agent_name']}: {er['response']}" for er in expert_responses]
                 )

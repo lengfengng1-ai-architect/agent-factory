@@ -876,8 +876,16 @@ async def run_llm_with_tools(llm, messages, tools, system_prompt=None, middlewar
 
     agent = create_agent(llm, tools=tools, **kwargs)
     result = await agent.ainvoke({"messages": messages})
-    last_msg = result["messages"][-1]
-    return last_msg.content
+    # The final message must be an AIMessage (LLM's answer). If the last
+    # message is a ToolMessage (tool output), walk backwards to find the
+    # last AIMessage so we return the LLM's synthesized answer, not raw
+    # tool data.
+    for msg in reversed(result.get("messages", [])):
+        if isinstance(msg, AIMessage):
+            return msg.content
+    # Fallback: return the very last message's content
+    msgs = result.get("messages", [])
+    return msgs[-1].content if msgs else ""
 
 
 def get_agent_middleware(agent: models.Agent):

@@ -44,24 +44,34 @@ class ChatKimi(ChatOpenAI):
         # Extract reasoning_content from AIMessage.additional_kwargs before
         # LangChain's _convert_message_to_dict drops it.
         raw_messages = self._convert_input(input_).to_messages()
-        reasoning_contents: list[str | None] = []
-        for m in raw_messages:
-            if isinstance(m, AIMessage):
-                reasoning_contents.append(m.additional_kwargs.get("reasoning_content"))
-            else:
-                reasoning_contents.append(None)
-
         payload = super()._get_request_payload(input_, stop=stop, **kwargs)
 
         # Kimi API requires reasoning_content on ALL assistant messages when
         # thinking is enabled (which is the default for kimi-k2.5/k2.6).
         # Inject preserved reasoning_content or empty string to satisfy validation.
-        if "messages" in payload and len(payload["messages"]) == len(reasoning_contents):
-            for msg, rc in zip(payload["messages"], reasoning_contents):
-                if msg.get("role") == "assistant" and rc is not None:
-                    msg["reasoning_content"] = rc
-                elif msg.get("role") == "assistant" and "reasoning_content" not in msg:
-                    msg["reasoning_content"] = ""
+        # Robust matching: iterate payload messages and raw messages in lockstep.
+        payload_messages = payload.get("messages", [])
+        raw_idx = 0
+        for msg in payload_messages:
+            if msg.get("role") == "assistant":
+                # Advance raw_idx to the next AIMessage
+                while raw_idx < len(raw_messages) and not isinstance(raw_messages[raw_idx], AIMessage):
+                    raw_idx += 1
+                if raw_idx < len(raw_messages):
+                    rc = raw_messages[raw_idx].additional_kwargs.get("reasoning_content")
+                    if rc is not None:
+                        msg["reasoning_content"] = rc
+                    elif "reasoning_content" not in msg:
+                        msg["reasoning_content"] = ""
+                    raw_idx += 1
+                else:
+                    # Fallback: no matching raw message
+                    if "reasoning_content" not in msg:
+                        msg["reasoning_content"] = ""
+            else:
+                # Advance raw_idx past non-assistant messages
+                if raw_idx < len(raw_messages) and not isinstance(raw_messages[raw_idx], AIMessage):
+                    raw_idx += 1
 
         # Log request payload for debugging
         model_name = payload.get("model", self.model_name)

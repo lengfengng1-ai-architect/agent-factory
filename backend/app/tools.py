@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from langchain.tools import tool, BaseTool
-from langchain.messages import ToolMessage, SystemMessage
+from langchain.messages import ToolMessage, SystemMessage, AIMessage
 from ddgs import DDGS
 from app import models
 from app.database import workspace_dir

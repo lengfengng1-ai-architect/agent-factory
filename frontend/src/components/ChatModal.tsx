@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Bot, User, Send, X, FileText, BookOpen, MessageCircle, Copy, Check, Globe } from 'lucide-react'
+import { Bot, User, Send, X, FileText, BookOpen, MessageCircle, Copy, Check, Globe, Image as ImageIcon } from 'lucide-react'
 import type { Agent, ChatFile, Source } from '../types'
 import { chatApi, fileApi, summaryApi, feishuApi } from '../api/client'
 import ChatFileBar, { type FileMode } from './ChatFileBar'
@@ -59,6 +59,7 @@ export default function ChatModal({ agent, onClose }: Props) {
   const browserEventsRef = useRef<BrowserEvent[]>([])
   const browserStatusRef = useRef<BrowserStatus>({ state: 'idle' })
   const rafPending = useRef(false)
+  const imageInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (activeTab === 'feishu' && !agent.config?.feishu?.enabled) {
@@ -125,12 +126,18 @@ export default function ChatModal({ agent, onClose }: Props) {
     localStorage.setItem(STORAGE_KEY(agent.id), mode)
   }, [agent.id])
 
-  const handleUpload = useCallback(async (fileList: FileList) => {
+  const handleUpload = useCallback(async (fileList: FileList, filterImages?: boolean) => {
     setUploading(true)
     try {
       const res = await fileApi.uploadAgent(agent.id, fileList)
       if (res.files) {
-        setFiles(prev => [...prev, ...res.files])
+        if (filterImages) {
+          // Only keep image files
+          const images = res.files.filter((f: ChatFile) => f.type.startsWith('image/'))
+          setFiles(prev => [...prev, ...images])
+        } else {
+          setFiles(prev => [...prev, ...res.files])
+        }
       }
     } catch (err: any) {
       alert(`上传失败: ${err.message || 'Unknown error'}`)
@@ -144,7 +151,7 @@ export default function ChatModal({ agent, onClose }: Props) {
       await fileApi.deleteAgent(agent.id, fileId)
       setFiles(prev => prev.filter(f => f.id !== fileId))
     } catch (err: any) {
-      alert(`删除失败: ${err.message || 'Unknown error'}`)
+      // Silently ignore delete errors
     }
   }, [agent.id])
 
@@ -166,14 +173,17 @@ export default function ChatModal({ agent, onClose }: Props) {
     }
   }
 
+  const imageFiles = files.filter(f => f.type.startsWith('image/'))
+  const textFiles = files.filter(f => !f.type.startsWith('image/'))
+
   const handleSend = async () => {
     const text = input.trim()
-    if (!text || loading) return
+    if ((!text && imageFiles.length === 0) || loading) return
 
     const activeFileIds = files.map(f => f.id)
 
     setInput('')
-    setMessages(prev => [...prev, { role: 'user', content: text, fileIds: activeFileIds }])
+    setMessages(prev => [...prev, { role: 'user', content: text || '[图片]', fileIds: activeFileIds }])
     setLoading(true)
 
     // Add placeholder assistant message
@@ -643,22 +653,69 @@ export default function ChatModal({ agent, onClose }: Props) {
 
         {activeTab === 'chat' && (
           <>
+            {/* Image previews above input */}
+            {imageFiles.length > 0 && (
+              <div className="px-5 pt-3 pb-1 border-t border-gray-100 bg-gray-50/50">
+                <div className="flex flex-wrap gap-2">
+                  {imageFiles.map(file => (
+                    <div key={file.id} className="relative group">
+                      <img
+                        src={`/api/agents/${agent.id}/files/${file.id}`}
+                        alt={file.name}
+                        className="w-20 h-20 object-cover rounded-lg border border-gray-200"
+                      />
+                      <button
+                        onClick={() => handleRemoveFile(file.id)}
+                        disabled={loading}
+                        className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-gray-800 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-[10px] disabled:opacity-50"
+                      >
+                        <X size={10} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <ChatFileBar
-              files={files}
+              files={textFiles}
               fileMode={fileMode}
               onUpload={handleUpload}
               onRemove={handleRemoveFile}
               onModeChange={handleModeChange}
               disabled={loading}
               uploading={uploading}
-              agentId={agent.id}
             />
             <div className="px-5 py-4 border-t border-gray-200">
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-end">
+                {/* Image upload button */}
+                <button
+                  onClick={() => imageInputRef.current?.click()}
+                  disabled={loading || uploading}
+                  className="p-2.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+                  title="发送图片"
+                >
+                  <ImageIcon size={18} />
+                </button>
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={e => {
+                    if (e.target.files?.length) {
+                      handleUpload(e.target.files, true)
+                      e.target.value = ''
+                    }
+                  }}
+                  disabled={loading || uploading}
+                />
+
                 <input
                   type="text"
                   className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
-                  placeholder="Type a message..."
+                  placeholder={imageFiles.length > 0 ? '添加描述（可选）...' : 'Type a message...'}
                   value={input}
                   onChange={e => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
@@ -667,7 +724,7 @@ export default function ChatModal({ agent, onClose }: Props) {
                 />
                 <button
                   onClick={handleSend}
-                  disabled={loading || !input.trim()}
+                  disabled={loading || (!input.trim() && imageFiles.length === 0)}
                   className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                 >
                   <Send size={14} />

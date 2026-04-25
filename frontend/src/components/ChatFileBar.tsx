@@ -12,7 +12,6 @@ interface Props {
   onModeChange: (mode: FileMode) => void
   disabled?: boolean
   uploading?: boolean
-  agentId?: number
 }
 
 const MODE_LABELS: Record<FileMode, string> = {
@@ -35,10 +34,12 @@ export default function ChatFileBar({
   onModeChange,
   disabled,
   uploading,
-  agentId,
 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [showModeMenu, setShowModeMenu] = useState(false)
+
+  // Filter out image files — they are handled separately in ChatModal
+  const nonImageFiles = files.filter(f => !f.type.startsWith('image/'))
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -67,24 +68,16 @@ export default function ChatFileBar({
 
   return (
     <div className="px-4 py-2 border-t border-gray-100 bg-gray-50/50">
-      {/* File list */}
-      {files.length > 0 && (
+      {/* File list — text files only */}
+      {nonImageFiles.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mb-2">
-          {files.map(file => (
+          {nonImageFiles.map(file => (
             <div
               key={file.id}
               className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-md px-2 py-1 text-xs group"
               title={`${file.name} (${formatSize(file.size)})`}
             >
-              {agentId && file.type.startsWith('image/') ? (
-                <img
-                  src={`/api/agents/${agentId}/files/${file.id}`}
-                  alt={file.name}
-                  className="w-10 h-10 object-cover rounded"
-                />
-              ) : (
-                getFileIcon(file.name)
-              )}
+              {getFileIcon(file.name)}
               <span className="max-w-[120px] truncate text-gray-700">{file.name}</span>
               <span className="text-gray-400">{formatSize(file.size)}</span>
               <button
@@ -158,9 +151,9 @@ export default function ChatFileBar({
           )}
         </div>
 
-        {files.length > 0 && (
+        {nonImageFiles.length > 0 && (
           <span className="text-[10px] text-gray-400">
-            {files.length} 个文件
+            {nonImageFiles.length} 个文件
           </span>
         )}
       </div>

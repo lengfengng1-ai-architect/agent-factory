@@ -87,6 +87,8 @@ export default function ChatModal({ agent, onClose }: Props) {
     queryKey: ['chat_files', agent.id],
     queryFn: () => fileApi.listAgent(agent.id),
     enabled: !!agent.id,
+    refetchOnWindowFocus: false,
+    staleTime: Infinity,
   })
 
   const { data: summariesData } = useQuery({

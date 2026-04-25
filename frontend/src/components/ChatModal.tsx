@@ -51,6 +51,7 @@ export default function ChatModal({ agent, onClose }: Props) {
   const [showBrowser, setShowBrowser] = useState(false)
   const [browserEvents, setBrowserEvents] = useState<BrowserEvent[]>([])
   const [browserStatus, setBrowserStatus] = useState<BrowserStatus>({ state: 'idle' })
+  const [enlargedImage, setEnlargedImage] = useState<string | null>(null)
 
   // Use refs for streaming accumulation to avoid excessive re-renders
   const contentRef = useRef('')
@@ -520,7 +521,8 @@ export default function ChatModal({ agent, onClose }: Props) {
                         key={fid}
                         src={`/api/agents/${agent.id}/files/${fid}`}
                         alt="attachment"
-                        className="w-16 h-16 object-cover rounded-lg border border-gray-200"
+                        className="w-16 h-16 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={() => setEnlargedImage(`/api/agents/${agent.id}/files/${fid}`)}
                       />
                     ))}
                   </div>
@@ -744,6 +746,26 @@ export default function ChatModal({ agent, onClose }: Props) {
             browserEvents={browserEvents}
             onClose={() => setShowBrowser(false)}
           />
+        </div>
+      )}
+      {/* Image lightbox overlay */}
+      {enlargedImage && (
+        <div
+          className="fixed inset-0 bg-black/80 flex items-center justify-center z-[70] cursor-zoom-out"
+          onClick={() => setEnlargedImage(null)}
+        >
+          <img
+            src={enlargedImage}
+            alt="Enlarged"
+            className="max-w-[90%] max-h-[90%] object-contain rounded-lg shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          />
+          <button
+            onClick={() => setEnlargedImage(null)}
+            className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 text-white rounded-full transition-colors"
+          >
+            <X size={20} />
+          </button>
         </div>
       )}
     </div>
